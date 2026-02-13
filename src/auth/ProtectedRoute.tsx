@@ -1,15 +1,17 @@
-import { Navigate, useLocation } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 
-export default function ProtectedRoute({ children }: { children: JSX.Element }) {
+type Props = {
+  children: ReactNode;
+};
+
+export default function ProtectedRoute({ children }: Props) {
   const { user, loading } = useAuth();
-  const loc = useLocation();
 
-  if (loading) return <div className="empty">Betöltés…</div>;
+  if (loading) return null; // vagy: <div className="empty">Betöltés…</div>
 
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
-  }
+  if (!user) return <Navigate to="/login" replace />;
 
-  return children;
+  return <>{children}</>;
 }
