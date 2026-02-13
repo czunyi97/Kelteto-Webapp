@@ -1,0 +1,353 @@
+:root{
+  --bg:#0b1220;
+  --panel:#0f1a2f;
+  --panel2:#0c162a;
+  --text:#e9eefc;
+  --muted:rgba(233,238,252,.72);
+  --border:rgba(255,255,255,.10);
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+  --r:18px;
+
+  --accent:#7c6cff;
+  --ok:#22c55e;
+  --warn:#f59e0b;
+  --alert:#ef4444;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+
+html{
+  background: var(--bg); /* ✅ ha body véget érne, az html akkor is ugyanolyan */
+}
+
+body{
+  min-height: 100vh;     /* ✅ mindig kitölti a képernyőt */
+}
+
+body{
+  margin:0;
+  background:
+    radial-gradient(1200px 800px at 20% 0%, rgba(124,108,255,.18), transparent 60%),
+    radial-gradient(900px 600px at 90% 10%, rgba(34,197,94,.12), transparent 55%),
+    var(--bg);
+  color:var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+a{color:inherit}
+button{font:inherit}
+
+/* ✅ mobilon teljes szélesség, laptopon max 1280px */
+.container{
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  padding: 16px;
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+  padding-top: calc(16px + env(safe-area-inset-top));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* TOP BAR */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+  flex-wrap: wrap; /* ✅ ne csússzon szét, inkább törjön sorba */
+  overflow: visible; /* ✅ biztosítjuk, hogy a gombok ne legyenek elvágva, ha kisebb a hely */
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width: 240px;
+}
+
+.logo{
+  width:40px;height:40px;
+  border-radius:14px;
+  background: linear-gradient(135deg, rgba(124,108,255,.95), rgba(93,169,255,.85));
+  box-shadow: var(--shadow);
+}
+
+.title{
+  display:flex;
+  flex-direction:column;
+  line-height:1.1;
+}
+.title h1{margin:0;font-size:18px}
+.title small{color:var(--muted);}
+
+.actions{display:flex; gap:10px; align-items:center}
+
+/* ✅ Vissza gomb mindig látszik */
+.backBtn{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 14px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.08);
+  color: var(--text);
+  cursor:pointer;
+  box-shadow: 0 10px 25px rgba(0,0,0,.25);
+  max-width: 100%;
+  padding-left: 16px;           /* extra belső hely a nyílnak */
+  min-width: 120px;             /* hogy ne préselődjön össze */
+  justify-content: flex-start;
+}
+.backBtn:hover{ background: rgba(255,255,255,.12); }
+.backBtn:active{ transform: translateY(1px); }
+
+.btn{
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background: rgba(15,26,47,.75);
+  color:var(--text);
+  cursor:pointer;
+  box-shadow: 0 8px 20px rgba(0,0,0,.18);
+  transition: transform .08s ease, background .12s ease;
+}
+.btn:hover{transform: translateY(-1px); background: rgba(15,26,47,.92)}
+.btn:active{transform: translateY(0px)}
+.btn.ghost{background: rgba(15,26,47,.40)}
+
+/* DASHBOARD GRID */
+.grid{
+  display:grid;
+  gap:14px;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+}
+@media (max-width: 980px){
+  .grid{grid-template-columns: repeat(2, minmax(0,1fr));}
+}
+@media (max-width: 640px){
+  .grid{grid-template-columns: 1fr;}
+}
+@media (max-width: 920px) and (orientation: landscape){
+  .grid{grid-template-columns: repeat(2, minmax(0,1fr));}
+}
+
+/* CARD */
+.card{
+  background: linear-gradient(180deg, rgba(15,26,47,.88), rgba(12,22,42,.88));
+  border:1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding:14px;
+}
+
+.cardBtn{
+  width:100%;
+  text-align:left;
+  cursor:pointer;
+  display:block;
+  border:none;
+}
+
+.row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+}
+
+.badge{
+  font-size:12px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  color: var(--text);
+  background: rgba(255,255,255,.06);
+}
+
+/* ✅ badge sor ne csússzon össze */
+.badgeRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:8px;
+}
+
+.pill{
+  font-size:12px;
+  padding:4px 10px;
+  border-radius:999px;
+  color:white;
+  border: 1px solid rgba(255,255,255,.10);
+}
+.pill.ok{background: rgba(34,197,94,.22)}
+.pill.warn{background: rgba(245,158,11,.22)}
+.pill.alert{background: rgba(239,68,68,.22)}
+.pill.offline{background: rgba(148,163,184,.18)}
+
+.kpis{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  margin-top:12px;
+}
+.kpi{
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.04);
+}
+.kpi .label{color:var(--muted); font-size:12px}
+.kpi .value{font-size:18px; margin-top:4px}
+
+.mini{
+  color:var(--muted);
+  font-size:12px;
+  margin-top:10px;
+}
+
+.tabs{
+  display:flex;
+  gap:10px;
+  margin: 12px 0 14px;
+}
+.tab{
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background: rgba(15,26,47,.45);
+  color: var(--text);
+  cursor:pointer;
+}
+.tab.active{
+  background: rgba(124,108,255,.18);
+  border-color: rgba(124,108,255,.38);
+}
+
+.sectionTitle{
+  margin:0 0 10px 0;
+  font-size:14px;
+  color: var(--muted);
+}
+
+.error{
+  background: rgba(239,68,68,.18);
+  border: 1px solid rgba(239,68,68,.35);
+  padding:12px;
+  border-radius:14px;
+}
+.empty{
+  background: rgba(255,255,255,.05);
+  border: 1px solid var(--border);
+  padding:12px;
+  border-radius:14px;
+}
+
+/* ✅ DEVICE: 2 oszlop csak nagy desktopon, különben 1 oszlop -> nem nyomja össze a chartot */
+.deviceLayout{
+  display:grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 24px;
+}
+/* 1100px alatt 1 oszlop (laptopon gyakran ez kell) */
+@media (max-width: 1100px){
+  .deviceLayout{ grid-template-columns: 1fr; }
+}
+
+/* mobil fekvő: 1 oszlop */
+@media (max-width: 920px) and (orientation: landscape){
+  .deviceLayout{ grid-template-columns: 1fr; }
+}
+
+/* ✅ chart kap min magasságot, hogy ne essen össze */
+.chartWrap{
+  width:100%;
+  min-height: 420px;
+}
+@media (max-width: 640px){
+  .chartWrap{ min-height: 340px; }
+}
+
+/* Touch: kényelmes gomb */
+@media (pointer: coarse){
+  .btn, .tab, .backBtn{min-height:44px}
+}
+
+/* Recharts fix, reszponzív magasság – nem esik össze */
+.chartArea{
+  width: 100%;
+  height: 440px;   /* laptop/desktop */
+}
+
+@media (max-width: 1100px){
+  .chartArea{ height: 380px; }
+}
+
+@media (max-width: 640px){
+  .chartArea{ height: 320px; }  /* telefon álló */
+}
+
+/* mobil fekvő */
+@media (max-width: 920px) and (orientation: landscape){
+  .chartArea{ height: 320px; }
+}
+
+/* iPhone Safari: safe area + böngésző UI miatti levágás ellen */
+.safeTop{
+  padding-left: calc(8px + env(safe-area-inset-left));
+  padding-right: calc(8px + env(safe-area-inset-right));
+  padding-top: calc(8px + env(safe-area-inset-top));
+}
+
+/* Topbar legyen stabil, ne lógjon a szélre */
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(11,18,32,.55);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 10px 10px; /* alap padding */
+}
+/* ===== Kompakt header ===== */
+
+.compactHeader{
+  padding: 2px 10px;   /* vékonyabb */
+  border-radius: 16px;
+}
+
+.headerLeft{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  flex-wrap: wrap;
+}
+
+.headerTitleRow{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.headerTitleRow h1{
+  font-size:18px;
+  margin:0;
+}
+
+/* státusz mindig egy sorban */
+.headerTitleRow .pill{
+  white-space: nowrap;
+}
+
+/* Vissza gomb kicsit kompaktabb */
+.backBtn{
+  padding:4px 10px;
+  min-width: auto;
+}
+
+.headerTitleRow h1{
+  font-size:16px;
+  margin:0;
+}
