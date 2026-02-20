@@ -40,55 +40,14 @@ function domainTight(values: Array<number | null | undefined>, pad: number, deci
   return [round(min), round(max)] as const;
 }
 
-/**
- * Egyszerű csúszóátlag (moving average) simítás.
- * window: 3..15 tipikusan. Nagyobb = simább, de "lustább" görbe.
- */
-function smoothMovingAvg(series: Array<number | null>, window: number) {
-  const half = Math.floor(window / 2);
-  const out: Array<number | null> = new Array(series.length).fill(null);
-
-  for (let i = 0; i < series.length; i++) {
-    let sum = 0;
-    let n = 0;
-    for (let j = i - half; j <= i + half; j++) {
-      if (j < 0 || j >= series.length) continue;
-      const v = series[j];
-      if (v == null || Number.isNaN(v)) continue;
-      sum += v;
-      n++;
-    }
-    out[i] = n ? sum / n : null;
-  }
-  return out;
-}
-
 export default function Chart24h({ data }: { data: Row[] }) {
   const text = "rgba(233,238,252,.92)";
   const muted = "rgba(233,238,252,.55)";
   const border = "rgba(255,255,255,.12)";
 
-  // ✅ Simítás erőssége
-  // - 5: enyhe
-  // - 9: nagyon szép hullámos (általában ez kell)
-  // - 13: extra sima, de késik a görbe
-  const WINDOW = 9;
-
-  // ✅ Simított adatsor létrehozása
-  const temps = data.map((d) => d.temp);
-  const hums = data.map((d) => d.hum);
-  const tempS = smoothMovingAvg(temps, WINDOW);
-  const humS = smoothMovingAvg(hums, WINDOW);
-
-  const smoothData = data.map((d, i) => ({
-    ...d,
-  temp_s: tempS[i] != null ? Math.round(tempS[i]! * 10) / 10 : null,   // ✅ 1 tizedes
-  hum_s: humS[i] != null ? Math.round(humS[i]! * 10) / 10 : null,     // ✅ 1 tizedes
-  }));
-
-  // domain a simított sorból (különben “ugrálhat”)
-  const tDom = domainTight(smoothData.map((d) => d.temp_s), 0.2, 1);
-  const hDom = domainTight(smoothData.map((d) => d.hum_s), 2, 0);
+  // ✅ Szűkített tartomány a VALÓDI értékekből (nem torzít)
+  const tDom = domainTight(data.map((d) => d.temp), 0.2, 1);
+  const hDom = domainTight(data.map((d) => d.hum), 2, 0);
 
   const commonTooltip = {
     contentStyle: {
@@ -108,7 +67,7 @@ export default function Chart24h({ data }: { data: Row[] }) {
       {/* 1) HŐ */}
       <div className="chartArea" style={{ height: 220, marginBottom: 14 }}>
         <ResponsiveContainer>
-          <LineChart data={smoothData}>
+          <LineChart data={data}>
             <CartesianGrid stroke={border} strokeDasharray="3 3" />
             <XAxis
               dataKey="ts"
@@ -124,9 +83,11 @@ export default function Chart24h({ data }: { data: Row[] }) {
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
               width={44}
+              tickFormatter={(v) => Number(v).toFixed(1)}
             />
             <Tooltip
               labelFormatter={(v) => new Date(v as string).toLocaleString()}
+              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
             <Legend
@@ -134,8 +95,8 @@ export default function Chart24h({ data }: { data: Row[] }) {
               formatter={(value) => <span style={{ color: text }}>{value}</span>}
             />
             <Line
-              type="natural"
-              dataKey="temp_s"              // ✅ SIMÍTOTT sor
+              type="monotone"          // ✅ csak rajzolási görbe, nem módosít adatot
+              dataKey="temp"
               name="Hőmérséklet (°C)"
               dot={false}
               connectNulls
@@ -144,7 +105,7 @@ export default function Chart24h({ data }: { data: Row[] }) {
               strokeLinecap="round"
               strokeLinejoin="round"
               isAnimationActive
-              animationDuration={500}
+              animationDuration={450}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -153,7 +114,7 @@ export default function Chart24h({ data }: { data: Row[] }) {
       {/* 2) PÁRA */}
       <div className="chartArea" style={{ height: 220 }}>
         <ResponsiveContainer>
-          <LineChart data={smoothData}>
+          <LineChart data={data}>
             <CartesianGrid stroke={border} strokeDasharray="3 3" />
             <XAxis
               dataKey="ts"
@@ -169,9 +130,11 @@ export default function Chart24h({ data }: { data: Row[] }) {
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
               width={44}
+              tickFormatter={(v) => Number(v).toFixed(0)}
             />
             <Tooltip
               labelFormatter={(v) => new Date(v as string).toLocaleString()}
+              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
             <Legend
@@ -179,8 +142,8 @@ export default function Chart24h({ data }: { data: Row[] }) {
               formatter={(value) => <span style={{ color: text }}>{value}</span>}
             />
             <Line
-              type="natural"
-              dataKey="hum_s"               // ✅ SIMÍTOTT sor
+              type="monotone"          // ✅ csak rajzolás
+              dataKey="hum"
               name="Páratartalom (%)"
               dot={false}
               connectNulls
@@ -189,7 +152,7 @@ export default function Chart24h({ data }: { data: Row[] }) {
               strokeLinecap="round"
               strokeLinejoin="round"
               isAnimationActive
-              animationDuration={500}
+              animationDuration={450}
             />
           </LineChart>
         </ResponsiveContainer>
