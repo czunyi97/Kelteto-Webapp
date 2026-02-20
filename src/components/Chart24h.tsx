@@ -61,13 +61,8 @@ function domainWithLimits(
   }
 
   // padding
-  if (min === max) {
-    min -= pad;
-    max += pad;
-  } else {
-    min -= pad;
-    max += pad;
-  }
+  min -= pad;
+  max += pad;
 
   const k = Math.pow(10, decimals);
   const round = (x: number) => Math.round(x * k) / k;
@@ -130,16 +125,36 @@ export default function Chart24h({
 
   // ✅ domain mindig tartalmazza a határértékeket, így a zöld vonalak mindig látszanak
   const tDom = useMemo(
-    () => domainWithLimits(data.map((d) => d.temp), bands.tMin, bands.tMax, 0.2, 1),
+    () =>
+      domainWithLimits(
+        data.map((d) => d.temp),
+        bands.tMin,
+        bands.tMax,
+        0.2,
+        1
+      ),
     [data, bands.tMin, bands.tMax]
   );
   const hDom = useMemo(
-    () => domainWithLimits(data.map((d) => d.hum), bands.hMin, bands.hMax, 2, 0),
+    () =>
+      domainWithLimits(
+        data.map((d) => d.hum),
+        bands.hMin,
+        bands.hMax,
+        2,
+        0
+      ),
     [data, bands.hMin, bands.hMax]
   );
 
-  const tempAlertPts = useMemo(() => buildAlertPoints(data, alerts, "temp"), [data, alerts]);
-  const humAlertPts = useMemo(() => buildAlertPoints(data, alerts, "hum"), [data, alerts]);
+  const tempAlertPts = useMemo(
+    () => buildAlertPoints(data, alerts, "temp"),
+    [data, alerts]
+  );
+  const humAlertPts = useMemo(
+    () => buildAlertPoints(data, alerts, "hum"),
+    [data, alerts]
+  );
 
   const commonTooltip = {
     contentStyle: {
@@ -176,31 +191,40 @@ export default function Chart24h({
               tick={{ fill: text }}
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
-              width={54}
-              tickFormatter={(v: any) => Number(v).toFixed(1)}
+              width={72}
+              tickFormatter={(v: any) => {
+                const n = Number(v);
+                if (Number.isFinite(n)) {
+                  if (Math.abs(n - bands.tMin) < 1e-9)
+                    return `Min ${n.toFixed(1)}°`;
+                  if (Math.abs(n - bands.tMax) < 1e-9)
+                    return `Max ${n.toFixed(1)}°`;
+                  return n.toFixed(1);
+                }
+                return String(v);
+              }}
             />
             <Tooltip
               labelFormatter={(v: any) => new Date(v as string).toLocaleString()}
-              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
+              formatter={(value: any) =>
+                typeof value === "number" ? value.toFixed(1) : value
+              }
               {...commonTooltip}
             />
             <Legend
               wrapperStyle={{ color: text }}
-              formatter={(value: any) => <span style={{ color: text }}>{value}</span>}
+              formatter={(value: any) => (
+                <span style={{ color: text }}>{value}</span>
+              )}
             />
 
-            {/* ✅ zöld vastag szaggatott határvonalak */}
+            {/* ✅ zöld vastag szaggatott határvonalak (felirat a tengelyen van) */}
             <ReferenceLine
               y={bands.tMin}
               stroke={green}
               strokeWidth={3}
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
-              label={{
-                value: `Min ${bands.tMin.toFixed(1)}°C`,
-                position: "insideTopLeft",
-                fill: green,
-              }}
             />
             <ReferenceLine
               y={bands.tMax}
@@ -208,11 +232,6 @@ export default function Chart24h({
               strokeWidth={3}
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
-              label={{
-                value: `Max ${bands.tMax.toFixed(1)}°C`,
-                position: "insideTopLeft",
-                fill: green,
-              }}
             />
 
             {/* 🔔 riasztás pontok */}
@@ -263,31 +282,40 @@ export default function Chart24h({
               tick={{ fill: text }}
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
-              width={54}
-              tickFormatter={(v: any) => Number(v).toFixed(0)}
+              width={72}
+              tickFormatter={(v: any) => {
+                const n = Number(v);
+                if (Number.isFinite(n)) {
+                  if (Math.abs(n - bands.hMin) < 1e-9)
+                    return `Min ${n.toFixed(0)}%`;
+                  if (Math.abs(n - bands.hMax) < 1e-9)
+                    return `Max ${n.toFixed(0)}%`;
+                  return n.toFixed(0);
+                }
+                return String(v);
+              }}
             />
             <Tooltip
               labelFormatter={(v: any) => new Date(v as string).toLocaleString()}
-              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
+              formatter={(value: any) =>
+                typeof value === "number" ? value.toFixed(1) : value
+              }
               {...commonTooltip}
             />
             <Legend
               wrapperStyle={{ color: text }}
-              formatter={(value: any) => <span style={{ color: text }}>{value}</span>}
+              formatter={(value: any) => (
+                <span style={{ color: text }}>{value}</span>
+              )}
             />
 
-            {/* ✅ zöld vastag szaggatott határvonalak */}
+            {/* ✅ zöld vastag szaggatott határvonalak (felirat a tengelyen van) */}
             <ReferenceLine
               y={bands.hMin}
               stroke={green}
               strokeWidth={3}
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
-              label={{
-                value: `Min ${bands.hMin.toFixed(0)}%`,
-                position: "insideTopLeft",
-                fill: green,
-              }}
             />
             <ReferenceLine
               y={bands.hMax}
@@ -295,11 +323,6 @@ export default function Chart24h({
               strokeWidth={3}
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
-              label={{
-                value: `Max ${bands.hMax.toFixed(0)}%`,
-                position: "insideTopLeft",
-                fill: green,
-              }}
             />
 
             {/* 🔔 riasztás pontok */}
