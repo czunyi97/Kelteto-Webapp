@@ -49,7 +49,6 @@ function domainWithLimits(
     (v): v is number => typeof v === "number" && !Number.isNaN(v)
   );
 
-  // ha nincs adat, akkor is a határérték legyen a domain
   let min = limitMin;
   let max = limitMax;
 
@@ -60,13 +59,50 @@ function domainWithLimits(
     max = Math.max(dataMax, limitMax);
   }
 
-  // padding
   min -= pad;
   max += pad;
 
   const k = Math.pow(10, decimals);
   const round = (x: number) => Math.round(x * k) / k;
   return [round(min), round(max)] as const;
+}
+
+// ✅ olyan tick-lista, ami biztosan tartalmazza az include értékeket (pl. Min/Max)
+function buildTicks(
+  domainMin: number,
+  domainMax: number,
+  decimals: number,
+  include: number[],
+  targetCount = 6
+) {
+  const k = Math.pow(10, decimals);
+  const round = (x: number) => Math.round(x * k) / k;
+
+  const min = domainMin;
+  const max = domainMax;
+  const span = max - min;
+
+  // ha span nagyon kicsi, csak a szükséges értékek
+  if (!Number.isFinite(span) || span === 0) {
+    const base = [min, ...include, max].map(round);
+    return Array.from(new Set(base)).sort((a, b) => a - b);
+  }
+
+  const n = Math.max(3, targetCount);
+  const step = span / (n - 1);
+
+  const ticks: number[] = [];
+  for (let i = 0; i < n; i++) ticks.push(round(min + step * i));
+
+  // biztosan benne legyenek a Min/Max-ok
+  for (const v of include) ticks.push(round(v));
+
+  // unique + rendezés + domain clamp
+  const uniq = Array.from(new Set(ticks))
+    .filter((v) => v >= min - 1e-12 && v <= max + 1e-12)
+    .sort((a, b) => a - b);
+
+  return uniq;
 }
 
 // ✅ alerts -> pontok a görbén (közeli timestamphez illesztve)
@@ -84,7 +120,6 @@ function buildAlertPoints(
 
   for (const a of alerts) {
     const at = new Date(a.ts).getTime();
-    // legközelebbi index keresés (lineáris, elég 24h-ra)
     let bestI = 0;
     let bestD = Infinity;
     for (let i = 0; i < xs.length; i++) {
@@ -104,7 +139,6 @@ function buildAlertPoints(
     }
   }
 
-  // duplikált pontok kiszűrése (azonos x/y)
   const uniq = new Map<string, AlertPoint>();
   for (const p of out) uniq.set(`${p.x}|${p.y}`, p);
   return Array.from(uniq.values());
@@ -122,39 +156,29 @@ export default function Chart24h({
   const text = "rgba(233,238,252,.92)";
   const muted = "rgba(233,238,252,.55)";
   const border = "rgba(255,255,255,.12)";
+  const green = "#22c55e";
 
-  // ✅ domain mindig tartalmazza a határértékeket, így a zöld vonalak mindig látszanak
   const tDom = useMemo(
-    () =>
-      domainWithLimits(
-        data.map((d) => d.temp),
-        bands.tMin,
-        bands.tMax,
-        0.2,
-        1
-      ),
+    () => domainWithLimits(data.map((d) => d.temp), bands.tMin, bands.tMax, 0.2, 1),
     [data, bands.tMin, bands.tMax]
   );
   const hDom = useMemo(
-    () =>
-      domainWithLimits(
-        data.map((d) => d.hum),
-        bands.hMin,
-        bands.hMax,
-        2,
-        0
-      ),
+    () => domainWithLimits(data.map((d) => d.hum), bands.hMin, bands.hMax, 2, 0),
     [data, bands.hMin, bands.hMax]
   );
 
-  const tempAlertPts = useMemo(
-    () => buildAlertPoints(data, alerts, "temp"),
-    [data, alerts]
+  // ✅ kényszerített tickek, amik TARTALMAZZÁK a min/max-ot
+  const tTicks = useMemo(
+    () => buildTicks(tDom[0], tDom[1], 1, [bands.tMin, bands.tMax], 6),
+    [tDom, bands.tMin, bands.tMax]
   );
-  const humAlertPts = useMemo(
-    () => buildAlertPoints(data, alerts, "hum"),
-    [data, alerts]
+  const hTicks = useMemo(
+    () => buildTicks(hDom[0], hDom[1], 0, [bands.hMin, bands.hMax], 6),
+    [hDom, bands.hMin, bands.hMax]
   );
+
+  const tempAlertPts = useMemo(() => buildAlertPoints(data, alerts, "temp"), [data, alerts]);
+  const humAlertPts = useMemo(() => buildAlertPoints(data, alerts, "hum"), [data, alerts]);
 
   const commonTooltip = {
     contentStyle: {
@@ -167,7 +191,7 @@ export default function Chart24h({
     labelStyle: { color: muted },
   } as const;
 
-  const green = "#22c55e";
+  const eq = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
 
   return (
     <div className="card">
@@ -188,37 +212,29 @@ export default function Chart24h({
             />
             <YAxis
               domain={tDom as any}
+              ticks={tTicks as any}
               tick={{ fill: text }}
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
-              width={72}
+              width={86}
               tickFormatter={(v: any) => {
                 const n = Number(v);
-                if (Number.isFinite(n)) {
-                  if (Math.abs(n - bands.tMin) < 1e-9)
-                    return `Min ${n.toFixed(1)}°`;
-                  if (Math.abs(n - bands.tMax) < 1e-9)
-                    return `Max ${n.toFixed(1)}°`;
-                  return n.toFixed(1);
-                }
-                return String(v);
+                if (!Number.isFinite(n)) return String(v);
+                if (eq(n, bands.tMin)) return `Min ${n.toFixed(1)}°`;
+                if (eq(n, bands.tMax)) return `Max ${n.toFixed(1)}°`;
+                return n.toFixed(1);
               }}
             />
             <Tooltip
               labelFormatter={(v: any) => new Date(v as string).toLocaleString()}
-              formatter={(value: any) =>
-                typeof value === "number" ? value.toFixed(1) : value
-              }
+              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
             <Legend
               wrapperStyle={{ color: text }}
-              formatter={(value: any) => (
-                <span style={{ color: text }}>{value}</span>
-              )}
+              formatter={(value: any) => <span style={{ color: text }}>{value}</span>}
             />
 
-            {/* ✅ zöld vastag szaggatott határvonalak (felirat a tengelyen van) */}
             <ReferenceLine
               y={bands.tMin}
               stroke={green}
@@ -234,7 +250,6 @@ export default function Chart24h({
               ifOverflow="extendDomain"
             />
 
-            {/* 🔔 riasztás pontok */}
             {tempAlertPts.map((p: AlertPoint) => (
               <ReferenceDot
                 key={`t-${p.x}-${p.y}`}
@@ -279,37 +294,29 @@ export default function Chart24h({
             />
             <YAxis
               domain={hDom as any}
+              ticks={hTicks as any}
               tick={{ fill: text }}
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
-              width={72}
+              width={86}
               tickFormatter={(v: any) => {
                 const n = Number(v);
-                if (Number.isFinite(n)) {
-                  if (Math.abs(n - bands.hMin) < 1e-9)
-                    return `Min ${n.toFixed(0)}%`;
-                  if (Math.abs(n - bands.hMax) < 1e-9)
-                    return `Max ${n.toFixed(0)}%`;
-                  return n.toFixed(0);
-                }
-                return String(v);
+                if (!Number.isFinite(n)) return String(v);
+                if (eq(n, bands.hMin)) return `Min ${n.toFixed(0)}%`;
+                if (eq(n, bands.hMax)) return `Max ${n.toFixed(0)}%`;
+                return n.toFixed(0);
               }}
             />
             <Tooltip
               labelFormatter={(v: any) => new Date(v as string).toLocaleString()}
-              formatter={(value: any) =>
-                typeof value === "number" ? value.toFixed(1) : value
-              }
+              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
             <Legend
               wrapperStyle={{ color: text }}
-              formatter={(value: any) => (
-                <span style={{ color: text }}>{value}</span>
-              )}
+              formatter={(value: any) => <span style={{ color: text }}>{value}</span>}
             />
 
-            {/* ✅ zöld vastag szaggatott határvonalak (felirat a tengelyen van) */}
             <ReferenceLine
               y={bands.hMin}
               stroke={green}
@@ -325,7 +332,6 @@ export default function Chart24h({
               ifOverflow="extendDomain"
             />
 
-            {/* 🔔 riasztás pontok */}
             {humAlertPts.map((p: AlertPoint) => (
               <ReferenceDot
                 key={`h-${p.x}-${p.y}`}
