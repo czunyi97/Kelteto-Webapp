@@ -7,6 +7,10 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  const [busyClear, setBusyClear] = useState(false);
+  const [showClear, setShowClear] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
   async function load() {
     setLoading(true);
     setErr("");
@@ -29,32 +33,158 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
     setLoading(false);
   }
 
+  async function clearAlerts() {
+    // Dupla biztosítás: UI + backend (itt legalább UI-s)
+    if (confirmText.trim().toUpperCase() !== "TÖRLÉS") {
+      setErr('Megerősítés kell: írd be pontosan, hogy "TÖRLÉS".');
+      return;
+    }
+
+    setBusyClear(true);
+    setErr("");
+
+    const { error } = await supabase.from("alerts").delete().eq("device_id", deviceId);
+
+    if (error) {
+      setErr(error.message);
+      setBusyClear(false);
+      return;
+    }
+
+    setRows([]);
+    setConfirmText("");
+    setShowClear(false);
+    setBusyClear(false);
+  }
+
   useEffect(() => {
     load();
-    // csak akkor frissítünk, ha nyitva van a fül (a parent fogja kezelni),
-    // de egy egyszerű 20 mp-es frissítés itt is oké:
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
   }, [deviceId]);
 
   return (
-    <div style={{ background: "#1e293b", borderRadius: 14, padding: 14, border: "1px solid rgba(255,255,255,.08)" }}>
+    <div
+      style={{
+        background: "#1e293b",
+        borderRadius: 14,
+        padding: 14,
+        border: "1px solid rgba(255,255,255,.08)",
+      }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <h3 style={{ margin: 0 }}>Riasztás napló</h3>
-        <button
-          onClick={load}
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            onClick={load}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,.15)",
+              background: "#111827",
+              color: "white",
+              cursor: "pointer",
+            }}
+          >
+            Frissítés
+          </button>
+
+          <button
+            onClick={() => {
+              setErr("");
+              setConfirmText("");
+              setShowClear(true);
+            }}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,.15)",
+              background: "#7f1d1d",
+              color: "white",
+              cursor: "pointer",
+            }}
+            title="Riasztási napló törlése"
+          >
+            Törlés
+          </button>
+        </div>
+      </div>
+
+      {/* ✅ Törlés megerősítő doboz */}
+      {showClear && (
+        <div
           style={{
-            padding: "8px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,.15)",
-            background: "#111827",
-            color: "white",
-            cursor: "pointer",
+            marginTop: 12,
+            borderRadius: 12,
+            padding: 12,
+            border: "1px solid rgba(255,255,255,.12)",
+            background: "rgba(0,0,0,.18)",
           }}
         >
-          Frissítés
-        </button>
-      </div>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Riasztási napló törlése</div>
+          <div style={{ opacity: 0.9, fontSize: 13, marginBottom: 10 }}>
+            Ez törli az eszköz összes riasztását. Nem visszavonható.
+            <br />
+            Megerősítéshez írd be: <b>TÖRLÉS</b>
+          </div>
+
+          <input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder='Írd be: TÖRLÉS'
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,.15)",
+              background: "#111827",
+              color: "white",
+              outline: "none",
+            }}
+          />
+
+          <div style={{ display: "flex", gap: 10, marginTop: 10, justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowClear(false);
+                setConfirmText("");
+                setErr("");
+              }}
+              disabled={busyClear}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,.15)",
+                background: "#111827",
+                color: "white",
+                cursor: "pointer",
+                opacity: busyClear ? 0.7 : 1,
+              }}
+            >
+              Mégse
+            </button>
+
+            <button
+              type="button"
+              onClick={clearAlerts}
+              disabled={busyClear}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,.15)",
+                background: "#7f1d1d",
+                color: "white",
+                cursor: "pointer",
+                opacity: busyClear ? 0.7 : 1,
+              }}
+            >
+              {busyClear ? "Törlés…" : "Végleges törlés"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading && <p style={{ marginTop: 12 }}>Betöltés…</p>}
       {!loading && err && (
@@ -64,9 +194,7 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
       )}
 
       {!loading && !err && rows.length === 0 && (
-        <div style={{ marginTop: 12, opacity: 0.85 }}>
-          Nincs riasztás naplózva ennél az eszköznél.
-        </div>
+        <div style={{ marginTop: 12, opacity: 0.85 }}>Nincs riasztás naplózva ennél az eszköznél.</div>
       )}
 
       {!loading && !err && rows.length > 0 && (
@@ -83,9 +211,7 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <b>{r.message}</b>
-                <span style={{ opacity: 0.85, fontSize: 12 }}>
-                  {new Date(r.ts).toLocaleString()}
-                </span>
+                <span style={{ opacity: 0.85, fontSize: 12 }}>{new Date(r.ts).toLocaleString()}</span>
               </div>
               <div style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
                 Kód: {r.code} {r.value != null ? ` • Érték: ${r.value}` : ""}
