@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -30,6 +31,8 @@ type Bands = {
   hMax: number;
 };
 
+type AlertPoint = { x: string; y: number; label: string };
+
 function fmtTime(ts: string) {
   const d = new Date(ts);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -42,7 +45,9 @@ function domainWithLimits(
   pad: number,
   decimals: number
 ) {
-  const nums = values.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
+  const nums = values.filter(
+    (v): v is number => typeof v === "number" && !Number.isNaN(v)
+  );
 
   // ha nincs adat, akkor is a határérték legyen a domain
   let min = limitMin;
@@ -74,13 +79,13 @@ function buildAlertPoints(
   data: Row[],
   alerts: AlertMiniRow[],
   key: "temp" | "hum"
-): Array<{ x: string; y: number; label: string }> {
+): AlertPoint[] {
   if (!data.length || !alerts.length) return [];
 
   const xs = data.map((r) => new Date(r.ts).getTime());
   const ys = data.map((r) => r[key]);
 
-  const out: Array<{ x: string; y: number; label: string }> = [];
+  const out: AlertPoint[] = [];
 
   for (const a of alerts) {
     const at = new Date(a.ts).getTime();
@@ -105,7 +110,7 @@ function buildAlertPoints(
   }
 
   // duplikált pontok kiszűrése (azonos x/y)
-  const uniq = new Map<string, { x: string; y: number; label: string }>();
+  const uniq = new Map<string, AlertPoint>();
   for (const p of out) uniq.set(`${p.x}|${p.y}`, p);
   return Array.from(uniq.values());
 }
@@ -172,16 +177,16 @@ export default function Chart24h({
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
               width={54}
-              tickFormatter={(v) => Number(v).toFixed(1)}
+              tickFormatter={(v: any) => Number(v).toFixed(1)}
             />
             <Tooltip
-              labelFormatter={(v) => new Date(v as string).toLocaleString()}
+              labelFormatter={(v: any) => new Date(v as string).toLocaleString()}
               formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
             <Legend
               wrapperStyle={{ color: text }}
-              formatter={(value) => <span style={{ color: text }}>{value}</span>}
+              formatter={(value: any) => <span style={{ color: text }}>{value}</span>}
             />
 
             {/* ✅ zöld vastag szaggatott határvonalak */}
@@ -211,7 +216,7 @@ export default function Chart24h({
             />
 
             {/* 🔔 riasztás pontok */}
-            {tempAlertPts.map((p) => (
+            {tempAlertPts.map((p: AlertPoint) => (
               <ReferenceDot
                 key={`t-${p.x}-${p.y}`}
                 x={p.x}
@@ -224,7 +229,7 @@ export default function Chart24h({
             ))}
 
             <Line
-              type="monotone" // ✅ csak rajzolás (nem torzítja az adatot)
+              type="monotone"
               dataKey="temp"
               name="Hőmérséklet (°C)"
               dot={false}
@@ -259,16 +264,16 @@ export default function Chart24h({
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
               width={54}
-              tickFormatter={(v) => Number(v).toFixed(0)}
+              tickFormatter={(v: any) => Number(v).toFixed(0)}
             />
             <Tooltip
-              labelFormatter={(v) => new Date(v as string).toLocaleString()}
+              labelFormatter={(v: any) => new Date(v as string).toLocaleString()}
               formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
             <Legend
               wrapperStyle={{ color: text }}
-              formatter={(value) => <span style={{ color: text }}>{value}</span>}
+              formatter={(value: any) => <span style={{ color: text }}>{value}</span>}
             />
 
             {/* ✅ zöld vastag szaggatott határvonalak */}
@@ -298,7 +303,7 @@ export default function Chart24h({
             />
 
             {/* 🔔 riasztás pontok */}
-            {humAlertPts.map((p) => (
+            {humAlertPts.map((p: AlertPoint) => (
               <ReferenceDot
                 key={`h-${p.x}-${p.y}`}
                 x={p.x}
