@@ -7,12 +7,27 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
+  ReferenceArea,
+  Scatter,
 } from "recharts";
 
 type Row = {
   ts: string;
   temp: number | null;
   hum: number | null;
+};
+
+type AlertMiniRow = {
+  ts: string;
+  code: string | null;
+  message: string | null;
+};
+
+type Bands = {
+  tMin: number;
+  tMax: number;
+  hMin: number;
+  hMax: number;
 };
 
 function fmtTime(ts: string) {
@@ -27,6 +42,7 @@ function domainTight(values: Array<number | null | undefined>, pad: number, deci
   let min = Math.min(...nums);
   let max = Math.max(...nums);
 
+  // ha 1 érték van (vagy mind ugyanaz), akkor is legyen látható tartomány
   if (min === max) {
     min -= pad;
     max += pad;
@@ -40,7 +56,37 @@ function domainTight(values: Array<number | null | undefined>, pad: number, deci
   return [round(min), round(max)] as const;
 }
 
-export default function Chart24h({ data }: { data: Row[] }) {
+// ✅ egyszerű piros “riasztás” jel (pötty + felkiáltójel)
+function AlertDot(props: any) {
+  const { cx, cy } = props;
+  if (cx == null || cy == null) return null;
+
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={6} fill="#ef4444" opacity={0.95} />
+      <text
+        x={cx}
+        y={cy + 4}
+        textAnchor="middle"
+        fontSize={10}
+        fill="white"
+        style={{ userSelect: "none" }}
+      >
+        !
+      </text>
+    </g>
+  );
+}
+
+export default function Chart24h({
+  data,
+  alerts = [],
+  bands,
+}: {
+  data: Row[];
+  alerts?: AlertMiniRow[];
+  bands?: Bands;
+}) {
   const text = "rgba(233,238,252,.92)";
   const muted = "rgba(233,238,252,.55)";
   const border = "rgba(255,255,255,.12)";
@@ -48,6 +94,14 @@ export default function Chart24h({ data }: { data: Row[] }) {
   // ✅ Szűkített tartomány a VALÓDI értékekből (nem torzít)
   const tDom = domainTight(data.map((d) => d.temp), 0.2, 1);
   const hDom = domainTight(data.map((d) => d.hum), 2, 0);
+
+  // ✅ riasztás pontok a HŐ grafikon tetejére (látszódjon akkor is, ha nincs közeli mérés)
+  const alertPoints = (alerts ?? []).map((a) => ({
+    ts: a.ts,
+    y: bands?.tMax ?? (typeof tDom[1] === "number" ? tDom[1] : 0),
+    code: a.code,
+    message: a.message,
+  }));
 
   const commonTooltip = {
     contentStyle: {
@@ -69,6 +123,18 @@ export default function Chart24h({ data }: { data: Row[] }) {
         <ResponsiveContainer>
           <LineChart data={data}>
             <CartesianGrid stroke={border} strokeDasharray="3 3" />
+
+            {/* ✅ zöld inkubátor sáv (min/max) */}
+            {bands && (
+              <ReferenceArea
+                y1={bands.tMin}
+                y2={bands.tMax}
+                fill="#22c55e"
+                fillOpacity={0.12}
+                strokeOpacity={0}
+              />
+            )}
+
             <XAxis
               dataKey="ts"
               tickFormatter={fmtTime}
@@ -77,6 +143,7 @@ export default function Chart24h({ data }: { data: Row[] }) {
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
             />
+
             <YAxis
               domain={tDom as any}
               tick={{ fill: text }}
@@ -85,17 +152,29 @@ export default function Chart24h({ data }: { data: Row[] }) {
               width={44}
               tickFormatter={(v) => Number(v).toFixed(1)}
             />
+
             <Tooltip
               labelFormatter={(v) => new Date(v as string).toLocaleString()}
-              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
+              formatter={(value: any, name: any, ctx: any) => {
+                // ✅ ha riasztás “Scatter” item
+                if (name === "Riasztás") {
+                  const msg = ctx?.payload?.message ?? "Riasztás";
+                  const code = ctx?.payload?.code ? ` (${ctx.payload.code})` : "";
+                  return [`${msg}${code}`, ""]; // 1 soros tooltip
+                }
+                // ✅ normál számok: 1 tizedes
+                return typeof value === "number" ? value.toFixed(1) : value;
+              }}
               {...commonTooltip}
             />
+
             <Legend
               wrapperStyle={{ color: text }}
               formatter={(value) => <span style={{ color: text }}>{value}</span>}
             />
+
             <Line
-              type="monotone"          // ✅ csak rajzolási görbe, nem módosít adatot
+              type="linear" // ✅ NINCS simítás -> nem “hullámosít”, nem torzít érzésre sem
               dataKey="temp"
               name="Hőmérséklet (°C)"
               dot={false}
@@ -107,6 +186,17 @@ export default function Chart24h({ data }: { data: Row[] }) {
               isAnimationActive
               animationDuration={450}
             />
+
+            {/* ✅ Riasztás ikonok (piros pötty + !) */}
+            {alertPoints.length > 0 && (
+              <Scatter
+                name="Riasztás"
+                data={alertPoints}
+                dataKey="y"
+                shape={<AlertDot />}
+                isAnimationActive={false}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -116,6 +206,18 @@ export default function Chart24h({ data }: { data: Row[] }) {
         <ResponsiveContainer>
           <LineChart data={data}>
             <CartesianGrid stroke={border} strokeDasharray="3 3" />
+
+            {/* ✅ zöld inkubátor sáv (min/max) */}
+            {bands && (
+              <ReferenceArea
+                y1={bands.hMin}
+                y2={bands.hMax}
+                fill="#22c55e"
+                fillOpacity={0.12}
+                strokeOpacity={0}
+              />
+            )}
+
             <XAxis
               dataKey="ts"
               tickFormatter={fmtTime}
@@ -124,6 +226,7 @@ export default function Chart24h({ data }: { data: Row[] }) {
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
             />
+
             <YAxis
               domain={hDom as any}
               tick={{ fill: text }}
@@ -132,17 +235,20 @@ export default function Chart24h({ data }: { data: Row[] }) {
               width={44}
               tickFormatter={(v) => Number(v).toFixed(0)}
             />
+
             <Tooltip
               labelFormatter={(v) => new Date(v as string).toLocaleString()}
               formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
+
             <Legend
               wrapperStyle={{ color: text }}
               formatter={(value) => <span style={{ color: text }}>{value}</span>}
             />
+
             <Line
-              type="monotone"          // ✅ csak rajzolás
+              type="linear" // ✅ NINCS simítás
               dataKey="hum"
               name="Páratartalom (%)"
               dot={false}

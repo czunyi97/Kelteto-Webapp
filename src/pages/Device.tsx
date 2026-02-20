@@ -43,6 +43,13 @@ type CycleRow = {
   ended_at: string | null;
 };
 
+// ✅ 24h riasztások a piros pontokhoz
+type AlertMiniRow = {
+  ts: string;
+  code: string | null;
+  message: string | null;
+};
+
 function fmt(n: number | null, digits = 1) {
   if (n == null || Number.isNaN(n)) return "-";
   return n.toFixed(digits);
@@ -59,6 +66,9 @@ export default function Device() {
   const [state, setState] = useState<StateRow | null>(null);
   const [rows24h, setRows24h] = useState<MeasurementRow[]>([]);
   const [dailyAvg, setDailyAvg] = useState<DailyAvgRow[]>([]);
+
+  // ✅ 24h riasztások state
+  const [alerts24h, setAlerts24h] = useState<AlertMiniRow[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -200,7 +210,7 @@ export default function Device() {
     if (d.error) throw d.error;
   }
 
-  // 1) állapot + 24h mérések + ciklusok (page load / device váltás)
+  // 1) állapot + 24h mérések + 24h riasztások + ciklusok (page load / device váltás)
   useEffect(() => {
     if (!deviceId) return;
 
@@ -237,6 +247,7 @@ export default function Device() {
       }
       setState((s.data ?? null) as StateRow | null);
 
+      // ✅ 24h measurements
       const m = await supabase
         .from("measurements")
         .select("ts, temp, hum")
@@ -254,9 +265,29 @@ export default function Device() {
 
       setRows24h((m.data ?? []) as MeasurementRow[]);
 
+      // ✅ 24h alerts (piros pontok)
+      const a = await supabase
+        .from("alerts")
+        .select("ts, code, message")
+        .eq("device_id", deviceId)
+        .gte("ts", since24hIso)
+        .order("ts", { ascending: true });
+
+      if (cancelled) return;
+
+      if (a.error) {
+        console.warn("[alerts 24h]", a.error.message);
+        setAlerts24h([]);
+      } else {
+        setAlerts24h((a.data ?? []) as AlertMiniRow[]);
+      }
+
       // ciklus lista + aktuális ciklus
       try {
-        const [cList, curId] = await Promise.all([loadCycles(deviceId), loadCurrentCycleId(deviceId)]);
+        const [cList, curId] = await Promise.all([
+          loadCycles(deviceId),
+          loadCurrentCycleId(deviceId),
+        ]);
         setCycles(cList);
         setSelectedCycleId(curId ?? (cList[0]?.id ?? null));
       } catch (e: any) {
@@ -300,7 +331,7 @@ export default function Device() {
     };
   }, [deviceId]);
 
-  // 2) NAPI ÁTLAG (csak daily módban) — ✅ ciklus alapján, cycle_id nélkül
+  // 2) NAPI ÁTLAG (csak daily módban) — ciklus start/end alapján
   useEffect(() => {
     if (!deviceId) return;
     if (!selectedCycleId) return;
@@ -310,11 +341,9 @@ export default function Device() {
     const selectedCycle = cycles.find((c) => c.id === selectedCycleId);
     if (!selectedCycle) return;
 
-    // a ciklus kezdete/ vége
     const startISO = selectedCycle.started_at;
     const endISO = selectedCycle.ended_at ?? new Date().toISOString();
 
-    // az UI 7/21/28 nap gomb csak “megjelenítés” legyen: alsó korlát a startISO-hoz képest
     const rangeStartISO = new Date(Date.now() - dailyRange * 24 * 60 * 60 * 1000).toISOString();
     const effectiveStartISO = rangeStartISO > startISO ? rangeStartISO : startISO;
 
@@ -630,6 +659,7 @@ export default function Device() {
                             try {
                               await clear24h(deviceId);
                               setRows24h([]);
+                              setAlerts24h([]); // ✅
                               setChartKey24((k) => k + 1);
                             } catch (e: any) {
                               setErr(e?.message ?? "Nem sikerült törölni.");
@@ -640,7 +670,13 @@ export default function Device() {
                         </button>
                       </div>
 
-                      <Chart24h key={chartKey24} data={rows24h} />
+                      {/* ✅ átadjuk a sávot + riasztásokat a Chartnak */}
+                      <Chart24h
+                        key={chartKey24}
+                        data={rows24h}
+                        alerts={alerts24h}
+                        bands={{ tMin, tMax, hMin, hMax }}
+                      />
                     </>
                   )
                 ) : !selectedCycleId ? (
@@ -728,7 +764,10 @@ export default function Device() {
 
                 {/* Teljes törlés modal */}
                 {showWipe && (
-                  <div className="card" style={{ marginTop: 12, border: "1px solid rgba(255,255,255,.12)" }}>
+                  <div
+                    className="card"
+                    style={{ marginTop: 12, border: "1px solid rgba(255,255,255,.12)" }}
+                  >
                     <div className="sectionTitle" style={{ color: "#fecaca" }}>
                       Teljes törlés
                     </div>
@@ -787,6 +826,7 @@ export default function Device() {
                             await fullWipeDevice(deviceId);
 
                             setRows24h([]);
+                            setAlerts24h([]); // ✅
                             setDailyAvg([]);
                             setCycles([]);
                             setSelectedCycleId(null);
