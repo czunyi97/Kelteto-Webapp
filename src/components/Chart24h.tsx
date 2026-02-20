@@ -1,3 +1,4 @@
+import React, { useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -35,22 +36,27 @@ function fmtTime(ts: string) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function roundN(x: number, decimals: number) {
-  const k = Math.pow(10, decimals);
-  return Math.round(x * k) / k;
-}
-
-function domainTight(
+function domainWithLimits(
   values: Array<number | null | undefined>,
+  limitMin: number,
+  limitMax: number,
   pad: number,
   decimals: number
-): readonly [number, number] | undefined {
+) {
   const nums = values.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
-  if (!nums.length) return undefined;
 
-  let min = Math.min(...nums);
-  let max = Math.max(...nums);
+  // ha nincs adat, akkor is a határérték legyen a domain
+  let min = limitMin;
+  let max = limitMax;
 
+  if (nums.length) {
+    const dataMin = Math.min(...nums);
+    const dataMax = Math.max(...nums);
+    min = Math.min(dataMin, limitMin);
+    max = Math.max(dataMax, limitMax);
+  }
+
+  // padding
   if (min === max) {
     min -= pad;
     max += pad;
@@ -59,50 +65,50 @@ function domainTight(
     max += pad;
   }
 
-  return [roundN(min, decimals), roundN(max, decimals)] as const;
+  const k = Math.pow(10, decimals);
+  const round = (x: number) => Math.round(x * k) / k;
+  return [round(min), round(max)] as const;
 }
 
-/**
- * Kiterjeszti a domaint úgy, hogy a reference min/max vonalak biztosan látszódjanak.
- */
-function extendDomainForBands(
-  dom: readonly [number, number] | undefined,
-  bandMin: number,
-  bandMax: number,
-  pad: number,
-  decimals: number
-): readonly [number, number] | undefined {
-  // ha nincs adat-domain, de van sáv → legalább a sáv látszódjon
-  if (!dom) {
-    const min = Math.min(bandMin, bandMax) - pad;
-    const max = Math.max(bandMin, bandMax) + pad;
-    return [roundN(min, decimals), roundN(max, decimals)] as const;
+// ✅ alerts -> pontok a görbén (közeli timestamphez illesztve)
+function buildAlertPoints(
+  data: Row[],
+  alerts: AlertMiniRow[],
+  key: "temp" | "hum"
+): Array<{ x: string; y: number; label: string }> {
+  if (!data.length || !alerts.length) return [];
+
+  const xs = data.map((r) => new Date(r.ts).getTime());
+  const ys = data.map((r) => r[key]);
+
+  const out: Array<{ x: string; y: number; label: string }> = [];
+
+  for (const a of alerts) {
+    const at = new Date(a.ts).getTime();
+    // legközelebbi index keresés (lineáris, elég 24h-ra)
+    let bestI = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      const d = Math.abs(xs[i] - at);
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    const y = ys[bestI];
+    if (typeof y === "number" && !Number.isNaN(y)) {
+      out.push({
+        x: data[bestI].ts,
+        y,
+        label: a.message ?? a.code ?? "Riasztás",
+      });
+    }
   }
 
-  const min = Math.min(dom[0], bandMin) - 0; // már benne a pad, nem kell duplázni
-  const max = Math.max(dom[1], bandMax) + 0;
-
-  // ha véletlen összecsukódna
-  if (min === max) {
-    return [roundN(min - pad, decimals), roundN(max + pad, decimals)] as const;
-  }
-
-  return [roundN(min, decimals), roundN(max, decimals)] as const;
-}
-
-function pickNearestValueAtTs(data: Row[], tsISO: string, key: "temp" | "hum") {
-  const target = new Date(tsISO).getTime();
-  let best: { v: number; dt: number } | null = null;
-
-  for (const r of data) {
-    const v = r[key];
-    if (v == null || Number.isNaN(v)) continue;
-    const t = new Date(r.ts).getTime();
-    const dt = Math.abs(t - target);
-    if (!best || dt < best.dt) best = { v, dt };
-  }
-
-  return best?.v ?? null;
+  // duplikált pontok kiszűrése (azonos x/y)
+  const uniq = new Map<string, { x: string; y: number; label: string }>();
+  for (const p of out) uniq.set(`${p.x}|${p.y}`, p);
+  return Array.from(uniq.values());
 }
 
 export default function Chart24h({
@@ -117,15 +123,19 @@ export default function Chart24h({
   const text = "rgba(233,238,252,.92)";
   const muted = "rgba(233,238,252,.55)";
   const border = "rgba(255,255,255,.12)";
-  const green = "#22c55e";
 
-  // alap domain az adatokból (zoom)
-  const tDomRaw = domainTight(data.map((d) => d.temp), 0.2, 1);
-  const hDomRaw = domainTight(data.map((d) => d.hum), 2, 0);
+  // ✅ domain mindig tartalmazza a határértékeket, így a zöld vonalak mindig látszanak
+  const tDom = useMemo(
+    () => domainWithLimits(data.map((d) => d.temp), bands.tMin, bands.tMax, 0.2, 1),
+    [data, bands.tMin, bands.tMax]
+  );
+  const hDom = useMemo(
+    () => domainWithLimits(data.map((d) => d.hum), bands.hMin, bands.hMax, 2, 0),
+    [data, bands.hMin, bands.hMax]
+  );
 
-  // biztosan látszanak a min/max határok is
-  const tDom = extendDomainForBands(tDomRaw, bands.tMin, bands.tMax, 0.2, 1);
-  const hDom = extendDomainForBands(hDomRaw, bands.hMin, bands.hMax, 2, 0);
+  const tempAlertPts = useMemo(() => buildAlertPoints(data, alerts, "temp"), [data, alerts]);
+  const humAlertPts = useMemo(() => buildAlertPoints(data, alerts, "hum"), [data, alerts]);
 
   const commonTooltip = {
     contentStyle: {
@@ -138,33 +148,17 @@ export default function Chart24h({
     labelStyle: { color: muted },
   } as const;
 
-  // alert pontokhoz: ts-hez megkeressük a legközelebbi értéket
-  const tempAlertDots = alerts
-    .map((a) => {
-      const y = pickNearestValueAtTs(data, a.ts, "temp");
-      if (y == null) return null;
-      return { ts: a.ts, y, label: a.message ?? a.code ?? "Riasztás" };
-    })
-    .filter(Boolean) as Array<{ ts: string; y: number; label: string }>;
-
-  const humAlertDots = alerts
-    .map((a) => {
-      const y = pickNearestValueAtTs(data, a.ts, "hum");
-      if (y == null) return null;
-      return { ts: a.ts, y, label: a.message ?? a.code ?? "Riasztás" };
-    })
-    .filter(Boolean) as Array<{ ts: string; y: number; label: string }>;
+  const green = "#22c55e";
 
   return (
     <div className="card">
       <h3 style={{ marginTop: 0, marginBottom: 12 }}>Utolsó 24 óra</h3>
 
       {/* 1) HŐ */}
-      <div className="chartArea" style={{ height: 240, marginBottom: 14 }}>
+      <div className="chartArea" style={{ height: 220, marginBottom: 14 }}>
         <ResponsiveContainer>
           <LineChart data={data}>
             <CartesianGrid stroke={border} strokeDasharray="3 3" />
-
             <XAxis
               dataKey="ts"
               tickFormatter={fmtTime}
@@ -173,7 +167,6 @@ export default function Chart24h({
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
             />
-
             <YAxis
               domain={tDom as any}
               tick={{ fill: text }}
@@ -182,19 +175,17 @@ export default function Chart24h({
               width={54}
               tickFormatter={(v) => Number(v).toFixed(1)}
             />
-
             <Tooltip
               labelFormatter={(v) => new Date(v as string).toLocaleString()}
               formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
-
             <Legend
               wrapperStyle={{ color: text }}
               formatter={(value) => <span style={{ color: text }}>{value}</span>}
             />
 
-            {/* ✅ zöld szaggatott MIN/MAX vonal + felirat */}
+            {/* ✅ zöld vastag szaggatott határvonalak */}
             <ReferenceLine
               y={bands.tMin}
               stroke={green}
@@ -202,10 +193,9 @@ export default function Chart24h({
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
               label={{
-                value: `${bands.tMin.toFixed(1)}°C`,
-                position: "right",
+                value: `Min ${bands.tMin.toFixed(1)}°C`,
+                position: "insideTopLeft",
                 fill: green,
-                fontSize: 12,
               }}
             />
             <ReferenceLine
@@ -215,28 +205,27 @@ export default function Chart24h({
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
               label={{
-                value: `${bands.tMax.toFixed(1)}°C`,
-                position: "right",
+                value: `Max ${bands.tMax.toFixed(1)}°C`,
+                position: "insideTopLeft",
                 fill: green,
-                fontSize: 12,
               }}
             />
 
-            {/* ✅ piros riasztás pontok */}
-            {tempAlertDots.map((p, i) => (
+            {/* 🔔 riasztás pontok */}
+            {tempAlertPts.map((p) => (
               <ReferenceDot
-                key={`t-alert-${i}`}
-                x={p.ts}
+                key={`t-${p.x}-${p.y}`}
+                x={p.x}
                 y={p.y}
-                r={5}
+                r={4.5}
                 fill="#ef4444"
                 stroke="#ef4444"
-                ifOverflow="discard"
+                ifOverflow="extendDomain"
               />
             ))}
 
             <Line
-              type="monotone"
+              type="monotone" // ✅ csak rajzolás (nem torzítja az adatot)
               dataKey="temp"
               name="Hőmérséklet (°C)"
               dot={false}
@@ -253,11 +242,10 @@ export default function Chart24h({
       </div>
 
       {/* 2) PÁRA */}
-      <div className="chartArea" style={{ height: 240 }}>
+      <div className="chartArea" style={{ height: 220 }}>
         <ResponsiveContainer>
           <LineChart data={data}>
             <CartesianGrid stroke={border} strokeDasharray="3 3" />
-
             <XAxis
               dataKey="ts"
               tickFormatter={fmtTime}
@@ -266,7 +254,6 @@ export default function Chart24h({
               axisLine={{ stroke: border }}
               tickLine={{ stroke: border }}
             />
-
             <YAxis
               domain={hDom as any}
               tick={{ fill: text }}
@@ -275,23 +262,17 @@ export default function Chart24h({
               width={54}
               tickFormatter={(v) => Number(v).toFixed(0)}
             />
-
             <Tooltip
               labelFormatter={(v) => new Date(v as string).toLocaleString()}
-              formatter={(value: any, name: any) => {
-                if (typeof value !== "number") return value;
-                // hum: 0 tized
-                return value.toFixed(0);
-              }}
+              formatter={(value: any) => (typeof value === "number" ? value.toFixed(1) : value)}
               {...commonTooltip}
             />
-
             <Legend
               wrapperStyle={{ color: text }}
               formatter={(value) => <span style={{ color: text }}>{value}</span>}
             />
 
-            {/* ✅ zöld szaggatott MIN/MAX vonal + felirat */}
+            {/* ✅ zöld vastag szaggatott határvonalak */}
             <ReferenceLine
               y={bands.hMin}
               stroke={green}
@@ -299,10 +280,9 @@ export default function Chart24h({
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
               label={{
-                value: `${bands.hMin.toFixed(0)}%`,
-                position: "right",
+                value: `Min ${bands.hMin.toFixed(0)}%`,
+                position: "insideTopLeft",
                 fill: green,
-                fontSize: 12,
               }}
             />
             <ReferenceLine
@@ -312,23 +292,22 @@ export default function Chart24h({
               strokeDasharray="8 6"
               ifOverflow="extendDomain"
               label={{
-                value: `${bands.hMax.toFixed(0)}%`,
-                position: "right",
+                value: `Max ${bands.hMax.toFixed(0)}%`,
+                position: "insideTopLeft",
                 fill: green,
-                fontSize: 12,
               }}
             />
 
-            {/* ✅ piros riasztás pontok */}
-            {humAlertDots.map((p, i) => (
+            {/* 🔔 riasztás pontok */}
+            {humAlertPts.map((p) => (
               <ReferenceDot
-                key={`h-alert-${i}`}
-                x={p.ts}
+                key={`h-${p.x}-${p.y}`}
+                x={p.x}
                 y={p.y}
-                r={5}
+                r={4.5}
                 fill="#ef4444"
                 stroke="#ef4444"
-                ifOverflow="discard"
+                ifOverflow="extendDomain"
               />
             ))}
 
