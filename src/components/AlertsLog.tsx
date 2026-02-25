@@ -37,13 +37,10 @@ function levelBg(level?: string | null) {
       return "#6b21a8";
     case "blue":
       return "#1e40af";
-
-    // visszafelé kompatibilitás
     case "alert":
       return "#7f1d1d";
     case "warning":
       return "#854d0e";
-
     default:
       return "#334155";
   }
@@ -51,12 +48,29 @@ function levelBg(level?: string | null) {
 
 function fmtValue(code?: string | null, value?: number | null) {
   if (value == null) return "";
-  const c = (code ?? "").toUpperCase();
-  const isHum = c.startsWith("HUM_");
-  // ha szeretnéd 1 tizedesre:
-  // const v = Math.round(value * 10) / 10;
-  const v = value;
-  return isHum ? `${v} %` : `${v} °C`;
+  const isHum = (code ?? "").toUpperCase().startsWith("HUM_");
+  return isHum ? `${value} %` : `${value} °C`;
+}
+
+/**
+ * VÉGLEGES stabil dátumformázás
+ * timestamptz → Europe/Budapest
+ */
+function fmtTs(tsLike: unknown) {
+  if (!tsLike) return "";
+
+  const d = new Date(String(tsLike));
+  if (Number.isNaN(d.getTime())) return String(tsLike);
+
+  return new Intl.DateTimeFormat("hu-HU", {
+    timeZone: "Europe/Budapest",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(d);
 }
 
 export default function AlertsLog({ deviceId }: { deviceId: string }) {
@@ -99,7 +113,10 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
     setBusyClear(true);
     setErr("");
 
-    const { error } = await supabase.from("alerts").delete().eq("device_id", deviceId);
+    const { error } = await supabase
+      .from("alerts")
+      .delete()
+      .eq("device_id", deviceId);
 
     if (error) {
       setErr(error.message);
@@ -131,7 +148,7 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <h3 style={{ margin: 0 }}>Riasztás napló</h3>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10 }}>
           <button
             onClick={load}
             style={{
@@ -160,7 +177,6 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
               color: "white",
               cursor: "pointer",
             }}
-            title="Riasztási napló törlése"
           >
             Törlés
           </button>
@@ -177,17 +193,18 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
             background: "rgba(0,0,0,.18)",
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Riasztási napló törlése</div>
-          <div style={{ opacity: 0.9, fontSize: 13, marginBottom: 10 }}>
-            Ez törli az eszköz összes riasztását. Nem visszavonható.
-            <br />
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>
+            Riasztási napló törlése
+          </div>
+
+          <div style={{ fontSize: 13, marginBottom: 10 }}>
             Megerősítéshez írd be: <b>TÖRLÉS</b>
           </div>
 
           <input
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            placeholder='Írd be: TÖRLÉS'
+            placeholder="Írd be: TÖRLÉS"
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -195,13 +212,11 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
               border: "1px solid rgba(255,255,255,.15)",
               background: "#111827",
               color: "white",
-              outline: "none",
             }}
           />
 
           <div style={{ display: "flex", gap: 10, marginTop: 10, justifyContent: "flex-end" }}>
             <button
-              type="button"
               onClick={() => {
                 setShowClear(false);
                 setConfirmText("");
@@ -215,14 +230,12 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
                 background: "#111827",
                 color: "white",
                 cursor: "pointer",
-                opacity: busyClear ? 0.7 : 1,
               }}
             >
               Mégse
             </button>
 
             <button
-              type="button"
               onClick={clearAlerts}
               disabled={busyClear}
               style={{
@@ -232,7 +245,6 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
                 background: "#7f1d1d",
                 color: "white",
                 cursor: "pointer",
-                opacity: busyClear ? 0.7 : 1,
               }}
             >
               {busyClear ? "Törlés…" : "Végleges törlés"}
@@ -242,6 +254,7 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
       )}
 
       {loading && <p style={{ marginTop: 12 }}>Betöltés…</p>}
+
       {!loading && err && (
         <div style={{ background: "#7f1d1d", padding: 12, borderRadius: 12, marginTop: 12 }}>
           <b>Hiba:</b> {err}
@@ -249,49 +262,40 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
       )}
 
       {!loading && !err && rows.length === 0 && (
-        <div style={{ marginTop: 12, opacity: 0.85 }}>Nincs riasztás naplózva ennél az eszköznél.</div>
+        <div style={{ marginTop: 12, opacity: 0.85 }}>
+          Nincs riasztás naplózva ennél az eszköznél.
+        </div>
       )}
 
       {!loading && !err && rows.length > 0 && (
         <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-          {rows.map((r) => {
-            const title = huLabel(r.code ?? "", r.message ?? "");
-            const valueStr = fmtValue(r.code, (r.value as unknown as number) ?? null);
-
-            return (
+          {rows.map((r) => (
+            <div
+              key={r.id}
+              style={{
+                padding: 14,
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,.10)",
+                background: levelBg(r.level),
+              }}
+            >
               <div
-                key={r.id}
                 style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,.10)",
-                  background: levelBg(r.level),
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: 20,
+                  fontWeight: 700,
+                  color: "white",
+                  gap: 14,
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    fontSize: 20,
-                    fontWeight: 700,
-                    color: "white",
-                    gap: 14,
-                  }}
-                >
-                  <span style={{ whiteSpace: "nowrap" }}>{title}</span>
-
-                  <span style={{ whiteSpace: "nowrap" }}>
-                    {r.value != null ? valueStr : ""}
-                  </span>
-
-                  <span style={{ whiteSpace: "nowrap" }}>
-                    {new Date(r.ts).toLocaleString()}
-                  </span>
-                </div>
+                <span>{huLabel(r.code ?? "", r.message ?? "")}</span>
+                <span>{r.value != null ? fmtValue(r.code, r.value as number) : ""}</span>
+                <span>{fmtTs(r.ts)}</span>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

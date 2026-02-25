@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import Chart24h from "../components/Chart24h";
 import ChartDailyAvg from "../components/ChartDailyAvg";
 import AlertsLog from "../components/AlertsLog";
+import CycleStopReportButton from "../components/CycleStopReportButton";
 
 type AnimalRow = { id: string; name_hu: string | null };
 type AnimalJoin = { name_hu: string | null } | null;
@@ -293,10 +294,7 @@ export default function Device() {
 
       // ciklus lista + aktuális ciklus
       try {
-        const [cList, curId] = await Promise.all([
-          loadCycles(deviceId),
-          loadCurrentCycleId(deviceId),
-        ]);
+        const [cList, curId] = await Promise.all([loadCycles(deviceId), loadCurrentCycleId(deviceId)]);
         setCycles(cList);
         setSelectedCycleId(curId ?? (cList[0]?.id ?? null));
       } catch (e: any) {
@@ -379,7 +377,9 @@ export default function Device() {
                 day: Number(t?.day),
                 message: String(t?.message ?? ""),
               }))
-              .filter((t: TaskRow) => Number.isFinite(t.day) && t.day > 0 && t.message.trim() !== "")
+              .filter(
+                (t: TaskRow) => Number.isFinite(t.day) && t.day > 0 && t.message.trim() !== ""
+              )
           : [];
 
         tasks.sort((a, b) => a.day - b.day);
@@ -697,7 +697,7 @@ export default function Device() {
                   </button>
                 </div>
 
-                {/* Daily: ciklus választó + új ciklus */}
+                {/* Daily: ciklus választó + új ciklus + stop+pdf */}
                 {chartMode === "daily" && (
                   <div className="card" style={{ marginBottom: 12 }}>
                     <div className="row" style={{ alignItems: "center", gap: 10 }}>
@@ -725,9 +725,30 @@ export default function Device() {
                         </div>
                       </div>
 
-                      <button type="button" className="tab" onClick={() => setShowNewCycle(true)}>
-                        Új ciklus
-                      </button>
+                      <div className="row" style={{ gap: 10 }}>
+                        <button type="button" className="tab" onClick={() => setShowNewCycle(true)}>
+                          Új ciklus
+                        </button>
+
+                        <CycleStopReportButton
+                          deviceId={deviceId!}
+                          onAfterStop={async () => {
+                            if (!deviceId) return;
+                            try {
+                              const cList = await loadCycles(deviceId);
+                              setCycles(cList);
+
+                              const curId = await loadCurrentCycleId(deviceId);
+                              setSelectedCycleId(curId ?? (cList[0]?.id ?? null));
+
+                              setDailyAvg([]);
+                              setChartKeyDaily((k) => k + 1);
+                            } catch (e: any) {
+                              console.warn("[after stop refresh]", e?.message ?? e);
+                            }
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -872,10 +893,7 @@ export default function Device() {
 
                 {/* Teljes törlés modal */}
                 {showWipe && (
-                  <div
-                    className="card"
-                    style={{ marginTop: 12, border: "1px solid rgba(255,255,255,.12)" }}
-                  >
+                  <div className="card" style={{ marginTop: 12, border: "1px solid rgba(255,255,255,.12)" }}>
                     <div className="sectionTitle" style={{ color: "#fecaca" }}>
                       Teljes törlés
                     </div>
