@@ -279,39 +279,37 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
 
             return (
               <div
-                key={r.id}
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,.10)",
-                  background: levelBg(r.level),
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <b>{title}</b>
-                    {badge && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(255,255,255,.22)",
-                          background: "rgba(0,0,0,.18)",
-                          opacity: 0.95,
-                        }}
-                      >
-                        {badge}
-                      </span>
-                    )}
-                  </div>
+                  key={r.id}
+                    style={{
+                    padding: 14,
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,.10)",
+                    background: levelBg(r.level),
+                  }}
+                >
+                <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: 20,        // ← egységes nagy méret
+                      fontWeight: 700,
+                      color: "white",
+                  }}
+                >
+                  <span>
+                    {huLabel(r.code ?? "", r.message ?? "")}
+                  </span>
 
-                  <span style={{ opacity: 0.85, fontSize: 12 }}>{new Date(r.ts).toLocaleString()}</span>
-                </div>
+                  {r.value != null && (
+                    <span>
+                      {fmtValue(r.code, r.value as any)}
+                    </span>
+                  )}
 
-                <div style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
-                  Kód: {r.code}
-                  {r.value != null ? ` • Érték: ${valueStr}` : ""}
+                  <span style={{ fontWeight: 500 }}>
+                    {new Date(r.ts).toLocaleString()}
+                  </span>
                 </div>
               </div>
             );
