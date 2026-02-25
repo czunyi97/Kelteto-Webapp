@@ -5,8 +5,9 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import Chart from "chart.js/auto";
 
+// ✅ DejaVu Sans (magyar ő/ű támogatás)
 import DejaVuFontUrl from "../assets/fonts/DejaVuSans.ttf?url";
-import LogoUrl from "../assets/logo.png?url";
+import LogoUrl from "../assets/logo.png?url"; // ✅ LOGÓ (jobb felső sarok)
 
 type CycleRow = {
   id: string;
@@ -30,10 +31,7 @@ type AlertRowLite = {
   value: number | null;
 };
 
-// ======================
-// SEGÉD FÜGGVÉNYEK
-// ======================
-
+// ✅ timestamptz → Europe/Budapest (stabil, nincs -1 óra)
 function fmtTs(ts: string) {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
@@ -51,7 +49,8 @@ function fmtTs(ts: string) {
 
 function avg(nums: number[]) {
   if (!nums.length) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
+  const s = nums.reduce((a, b) => a + b, 0);
+  return s / nums.length;
 }
 
 function round1(x: number) {
@@ -65,6 +64,33 @@ function huAnimal(a?: string | null) {
   return a || "—";
 }
 
+function huAlertTitle(code?: string | null, fallback?: string | null) {
+  const c = (code ?? "").toUpperCase();
+  switch (c) {
+    case "TEMP_HIGH_WARN":
+      return "Hő magas";
+    case "TEMP_HIGH_CRIT":
+      return "Hő nagyon magas";
+    case "TEMP_LOW_WARN":
+      return "Hő alacsony";
+    case "TEMP_LOW_CRIT":
+      return "Hő nagyon alacsony";
+    case "HUM_HIGH_WARN":
+      return "Pára magas";
+    case "HUM_HIGH_CRIT":
+      return "Pára nagyon magas";
+    case "HUM_LOW_WARN":
+      return "Pára alacsony";
+    case "HUM_LOW_CRIT":
+      return "Pára nagyon alacsony";
+    case "CYCLE_FINISHED":
+      return "Ciklus lezárva";
+    default:
+      return fallback || code || "Riasztás";
+  }
+}
+
+// ✅ Riasztás típus összesítőhöz
 function alertBucket(code?: string | null) {
   const c = (code ?? "").toUpperCase();
   if (c.startsWith("TEMP_HIGH")) return "Hő magas";
@@ -75,6 +101,7 @@ function alertBucket(code?: string | null) {
   return "Egyéb";
 }
 
+// ✅ “Esemény” rövidítés (ne törje szét a sort)
 function shorten(s: string, max = 44) {
   const t = (s ?? "").toString().replace(/\s+/g, " ").trim();
   if (!t) return "—";
@@ -95,10 +122,7 @@ async function loadFileBase64(url: string): Promise<string> {
   return btoa(binary);
 }
 
-// ======================
-// GRAFIKON Y AUTO
-// ======================
-
+// 📊 Y tengely auto: min/max + padding
 function calcMinMax(data: number[]) {
   const min = Math.min(...data);
   const max = Math.max(...data);
@@ -111,7 +135,7 @@ function calcMinMax(data: number[]) {
   };
 }
 
-async function chartToDataUrl(labels: string[], data: number[], label: string) {
+async function chartToDataUrl(labels: string[], data: number[], label: string): Promise<string> {
   const canvas = document.createElement("canvas");
   canvas.width = 1000;
   canvas.height = 350;
@@ -125,12 +149,24 @@ async function chartToDataUrl(labels: string[], data: number[], label: string) {
     type: "line",
     data: {
       labels,
-      datasets: [{ label, data, borderWidth: 3, pointRadius: 0, tension: 0.25 }],
+      datasets: [
+        {
+          label,
+          data,
+          borderWidth: 3,
+          pointRadius: 0,
+          tension: 0.25,
+        },
+      ],
     },
     options: {
       responsive: false,
       animation: false,
-      scales: { y: { min, max } },
+      plugins: { legend: { display: true } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8 } },
+        y: { min, max },
+      },
     },
   });
 
@@ -139,10 +175,6 @@ async function chartToDataUrl(labels: string[], data: number[], label: string) {
   chart.destroy();
   return url;
 }
-
-// ======================
-// KOMPONENS
-// ======================
 
 export default function CycleStopReportButton({
   deviceId,
@@ -154,90 +186,144 @@ export default function CycleStopReportButton({
   const [activeCycle, setActiveCycle] = useState<CycleRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [eggs, setEggs] = useState("");
-  const [hatched, setHatched] = useState("");
-  const [notes, setNotes] = useState("");
+  const [err, setErr] = useState("");
 
-  useEffect(() => {
-    loadActiveCycle();
-  }, [deviceId]);
+  // kitölthető mezők
+  const [showForm, setShowForm] = useState(false);
+  const [eggs, setEggs] = useState<string>("");
+  const [hatched, setHatched] = useState<string>("");
+  const [notes, setNotes] = useState<string>("");
 
   async function loadActiveCycle() {
-    const { data } = await supabase
+    setLoading(true);
+    setErr("");
+
+    const { data, error } = await supabase
       .from("cycles")
-      .select("*")
+      .select("id, device_id, animal_type, started_at, ended_at")
       .eq("device_id", deviceId)
       .is("ended_at", null)
+      .order("started_at", { ascending: false })
       .limit(1);
 
-    setActiveCycle(data?.[0] ?? null);
+    if (error) {
+      setErr(error.message);
+      setActiveCycle(null);
+      setLoading(false);
+      return;
+    }
+
+    setActiveCycle((data?.[0] as CycleRow) ?? null);
     setLoading(false);
   }
 
-  // 🔐 dupla confirm
-  async function stopCycleWithReport() {
-    if (!activeCycle) return;
+  useEffect(() => {
+    loadActiveCycle();
+    const t = setInterval(loadActiveCycle, 20000);
+    return () => clearInterval(t);
+  }, [deviceId]);
 
-    if (!window.confirm("Biztosan le szeretnéd zárni a ciklust?")) return;
-    if (!window.confirm("Megerősítés: tényleg lezárod?")) return;
+  // ✅ useMemo TÉNYLEG használva → nem lesz TS6133
+  const canShow = useMemo(() => !!activeCycle && !loading, [activeCycle, loading]);
 
-    setShowForm(true);
-  }
+  async function generatePdfAndDownload(params: {
+    cycle: CycleRow;
+    endedAtIso: string;
+    eggsCount: number | null;
+    hatchedCount: number | null;
+    notesText: string; // ✅ használt lesz a PDF-ben
+  }) {
+    const { cycle, endedAtIso, eggsCount, hatchedCount, notesText } = params;
 
-  async function confirmStopAndGenerate() {
-    if (!activeCycle) return;
-    setBusy(true);
+    // 1) measurements (ciklus időablak)
+    const { data: meas, error: measErr } = await supabase
+      .from("measurements")
+      .select("ts, temp, hum")
+      .eq("device_id", deviceId)
+      .gte("ts", cycle.started_at)
+      .lte("ts", endedAtIso)
+      .order("ts", { ascending: true });
 
-    try {
-      const endedAtIso = new Date().toISOString();
+    if (measErr) throw new Error(measErr.message);
+    const measurements = (meas ?? []) as MeasurementRow[];
 
-      await supabase.from("cycles").update({ ended_at: endedAtIso }).eq("id", activeCycle.id);
+    // 2) alerts (TELJES CIKLUS)
+    const { data: als, error: alErr } = await supabase
+      .from("alerts")
+      .select("ts, level, code, message, value")
+      .eq("device_id", deviceId)
+      .gte("ts", cycle.started_at)
+      .lte("ts", endedAtIso)
+      .order("ts", { ascending: true });
 
-      const eggsCount = eggs ? Number(eggs) : null;
-      const hatchedCount = hatched ? Number(hatched) : null;
+    if (alErr) throw new Error(alErr.message);
+    const alerts = (als ?? []) as AlertRowLite[];
 
-      await generatePdf(activeCycle, endedAtIso, eggsCount, hatchedCount, notes);
+    const temps = measurements.map((m) => m.temp).filter((v): v is number => v != null);
+    const hums = measurements.map((m) => m.hum).filter((v): v is number => v != null);
 
-      setShowForm(false);
-      setActiveCycle(null);
-      onAfterStop?.();
-    } finally {
-      setBusy(false);
-    }
-  }
+    const avgT = avg(temps);
+    const avgH = avg(hums);
 
-  async function generatePdf(
-    cycle: CycleRow,
-    endedAtIso: string,
-    eggsCount: number | null,
-    hatchedCount: number | null,
-    notesText: string
-  ) {
+    // grafikon mintavételezés: max ~120 pont
+    const step = Math.max(1, Math.floor(measurements.length / 120));
+    const sampled = measurements.filter((_, idx) => idx % step === 0);
+
+    const labels = sampled.map((m) => {
+      const d = new Date(m.ts);
+      return `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(
+        2,
+        "0"
+      )}:${String(d.getMinutes()).padStart(2, "0")}`;
+    });
+
+    const tempSeries = sampled.map((m) => m.temp).filter((v): v is number => v != null);
+    const humSeries = sampled.map((m) => m.hum).filter((v): v is number => v != null);
+
+    const tempImg = tempSeries.length
+      ? await chartToDataUrl(labels.slice(0, tempSeries.length), tempSeries, "Hőmérséklet (°C)")
+      : null;
+
+    const humImg = humSeries.length
+      ? await chartToDataUrl(labels.slice(0, humSeries.length), humSeries, "Páratartalom (%)")
+      : null;
+
+    // PDF
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
+
+    // ✅ Font beágyazás
+    const fontB64 = await loadFileBase64(DejaVuFontUrl);
+    (pdf as any).addFileToVFS("DejaVuSans.ttf", fontB64);
+    (pdf as any).addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
+    (pdf as any).addFont("DejaVuSans.ttf", "DejaVuSans", "bold");
+
     const margin = 40;
     let y = margin;
 
-    // LOGÓ jobb felső sarok
+    // ✅ LOGÓ jobb felső sarok (a piros keret helyére)
     try {
       const logoB64 = await loadFileBase64(LogoUrl);
       const pageW = pdf.internal.pageSize.getWidth();
       const logoW = 150;
       const logoH = 60;
+
       const x = pageW - margin - logoW;
-      pdf.addImage(`data:image/png;base64,${logoB64}`, "PNG", x, y, logoW, logoH);
-      y += logoH + 10;
-    } catch {}
+      const yLogo = y; // ha feljebb kell: margin - 10
 
-    const fontB64 = await loadFileBase64(DejaVuFontUrl);
-    (pdf as any).addFileToVFS("DejaVuSans.ttf", fontB64);
-    (pdf as any).addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
-    pdf.setFont("DejaVuSans");
+      pdf.addImage(`data:image/png;base64,${logoB64}`, "PNG", x, yLogo, logoW, logoH);
 
+      // hogy a cím/szöveg ne fusson rá
+      y += Math.max(logoH, 44) + 10;
+    } catch (e) {
+      console.warn("Logo betöltés hiba:", e);
+    }
+
+    pdf.setFont("DejaVuSans", "bold");
     pdf.setFontSize(18);
     pdf.text("Keltetési ciklus riport", margin, y);
-    y += 20;
+    y += 18;
 
+    pdf.setFont("DejaVuSans", "normal");
     pdf.setFontSize(11);
     pdf.text(`Eszköz: ${deviceId}`, margin, y);
     y += 14;
@@ -246,16 +332,24 @@ export default function CycleStopReportButton({
     pdf.text(`Kezdés: ${fmtTs(cycle.started_at)}`, margin, y);
     y += 14;
     pdf.text(`Befejezés: ${fmtTs(endedAtIso)}`, margin, y);
-    y += 20;
+    y += 18;
 
+    // 📈 kikelési hatásfok
     let efficiency = "—";
-    if (eggsCount && hatchedCount && eggsCount > 0) {
+    if (eggsCount != null && hatchedCount != null && eggsCount > 0) {
       efficiency = `${round1((hatchedCount / eggsCount) * 100)} %`;
     }
 
-    const sumRows = [
-      ["Tojások száma", eggsCount ?? "—"],
-      ["Kikelt", hatchedCount ?? "—"],
+    pdf.setFont("DejaVuSans", "bold");
+    pdf.text("Összegzés", margin, y);
+    y += 10;
+
+    pdf.setFont("DejaVuSans", "normal");
+    const sumRows: Array<[string, string]> = [
+      ["Átlag hőmérséklet", avgT == null ? "—" : `${round1(avgT)} °C`],
+      ["Átlag páratartalom", avgH == null ? "—" : `${round1(avgH)} %`],
+      ["Tojások száma", eggsCount == null ? "—" : String(eggsCount)],
+      ["Kikelt", hatchedCount == null ? "—" : String(hatchedCount)],
       ["Kikelési hatásfok", efficiency],
     ];
 
@@ -265,39 +359,432 @@ export default function CycleStopReportButton({
       head: [["Mező", "Érték"]],
       body: sumRows,
       theme: "grid",
+      styles: { font: "DejaVuSans", fontSize: 11 },
+      headStyles: { font: "DejaVuSans", fontStyle: "bold" },
       margin: { left: margin, right: margin },
     });
 
-    pdf.save(`ciklus-riport_${deviceId}.pdf`);
+    // @ts-ignore
+    y = (pdf as any).lastAutoTable.finalY + 18;
+
+    pdf.setFont("DejaVuSans", "bold");
+    pdf.text("Grafikonok", margin, y);
+    y += 10;
+    pdf.setFont("DejaVuSans", "normal");
+
+    if (tempImg) {
+      pdf.text("Hőmérséklet", margin, y);
+      y += 6;
+      pdf.addImage(tempImg, "PNG", margin, y, 515, 180);
+      y += 190;
+    }
+
+    if (y > 650) {
+      pdf.addPage();
+      y = margin;
+    }
+
+    if (humImg) {
+      pdf.text("Páratartalom", margin, y);
+      y += 6;
+      pdf.addImage(humImg, "PNG", margin, y, 515, 180);
+      y += 190;
+    }
+
+    if (y > 650) {
+      pdf.addPage();
+      y = margin;
+    }
+
+    // ===============================
+    // RIASZTÁS ÖSSZESÍTŐ + NAPLÓ
+    // ===============================
+    pdf.setFont("DejaVuSans", "bold");
+    pdf.text("Riasztások", margin, y);
+    y += 10;
+
+    pdf.setFont("DejaVuSans", "normal");
+
+    // Összesítő
+    const counts = new Map<string, number>();
+    for (const a of alerts) {
+      const key = alertBucket(a.code); // ✅ alertBucket használva
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    const summaryRows: Array<[string, string]> = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => [k, String(v)]);
+
+    if (summaryRows.length === 0) summaryRows.push(["Nincs riasztás", "0"]);
+
+    // @ts-ignore
+    autoTable(pdf, {
+      startY: y,
+      head: [["Típus", "Db"]],
+      body: summaryRows,
+      theme: "grid",
+      styles: { font: "DejaVuSans", fontSize: 10 },
+      headStyles: { font: "DejaVuSans", fontStyle: "bold" },
+      margin: { left: margin, right: margin },
+      tableWidth: 220,
+    });
+
+    // @ts-ignore
+    y = (pdf as any).lastAutoTable.finalY + 16;
+
+    if (y > 720) {
+      pdf.addPage();
+      y = margin;
+    }
+
+    pdf.setFont("DejaVuSans", "bold");
+    pdf.text("Riasztási napló (teljes ciklus)", margin, y);
+    y += 10;
+    pdf.setFont("DejaVuSans", "normal");
+
+    const head = [["Idő", "Esemény", "Kód", "Érték", "Szint"]];
+
+    const alertBody = alerts.map((a) => {
+      const title = huAlertTitle(a.code, a.message);
+      return [
+        fmtTs(a.ts),
+        shorten(title, 44), // ✅ shorten használva
+        a.code ?? "—",
+        a.value == null ? "—" : String(a.value),
+        a.level ?? "—",
+      ];
+    });
+
+    if (alertBody.length === 0) {
+      // @ts-ignore
+      autoTable(pdf, {
+        startY: y,
+        head,
+        body: [["—", "Nincs riasztás ebben az időszakban", "—", "—", "—"]],
+        theme: "grid",
+        styles: { font: "DejaVuSans", fontSize: 9 },
+        headStyles: { font: "DejaVuSans", fontStyle: "bold" },
+        margin: { left: margin, right: margin },
+      });
+      // @ts-ignore
+      y = (pdf as any).lastAutoTable.finalY + 18;
+    } else {
+      const pageW = pdf.internal.pageSize.getWidth();
+      const colGap = 12;
+      const colW = (pageW - 2 * margin - colGap) / 2;
+      const useTwoCols = alertBody.length >= 18 && alertBody.length <= 160;
+
+      if (!useTwoCols) {
+        // @ts-ignore
+        autoTable(pdf, {
+          startY: y,
+          head,
+          body: alertBody,
+          theme: "grid",
+          styles: { font: "DejaVuSans", fontSize: 9 },
+          headStyles: { font: "DejaVuSans", fontStyle: "bold" },
+          margin: { left: margin, right: margin },
+        });
+        // @ts-ignore
+        y = (pdf as any).lastAutoTable.finalY + 18;
+      } else {
+        const mid = Math.ceil(alertBody.length / 2);
+        const leftBody = alertBody.slice(0, mid);
+        const rightBody = alertBody.slice(mid);
+
+        // bal oszlop
+        // @ts-ignore
+        autoTable(pdf, {
+          startY: y,
+          head,
+          body: leftBody,
+          theme: "grid",
+          styles: { font: "DejaVuSans", fontSize: 8.5, cellPadding: 2 },
+          headStyles: { font: "DejaVuSans", fontStyle: "bold" },
+          margin: { left: margin, right: margin },
+          tableWidth: colW,
+        });
+        // @ts-ignore
+        const yLeft = (pdf as any).lastAutoTable.finalY;
+
+        // jobb oszlop
+        // @ts-ignore
+        autoTable(pdf, {
+          startY: y,
+          head,
+          body: rightBody.length ? rightBody : [["—", "—", "—", "—", "—"]],
+          theme: "grid",
+          styles: { font: "DejaVuSans", fontSize: 8.5, cellPadding: 2 },
+          headStyles: { font: "DejaVuSans", fontStyle: "bold" },
+          margin: { left: margin + colW + colGap, right: margin },
+          tableWidth: colW,
+        });
+        // @ts-ignore
+        const yRight = (pdf as any).lastAutoTable.finalY;
+
+        y = Math.max(yLeft, yRight) + 18;
+
+        if (y > 760) {
+          pdf.addPage();
+          y = margin;
+        }
+      }
+    }
+
+    // Megjegyzés blokk (✅ notesText HASZNÁLVA → nem lesz TS6133)
+    if (y > 720) {
+      pdf.addPage();
+      y = margin;
+    }
+
+    pdf.setFont("DejaVuSans", "bold");
+    pdf.text("Megjegyzés", margin, y);
+    y += 12;
+
+    pdf.setFont("DejaVuSans", "normal");
+    const note = (notesText || "").trim() || "—";
+    const split = pdf.splitTextToSize(note, 515);
+    pdf.text(split, margin, y);
+
+    const fileName = `ciklus-riport_${deviceId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    pdf.save(fileName);
+  }
+
+  // 🔐 dupla megerősítés
+  async function stopCycleWithReport() {
+    if (!activeCycle) return;
+    setErr("");
+
+    const ok1 = window.confirm("Biztosan le szeretnéd zárni a ciklust?\nPDF riport készül.");
+    if (!ok1) return;
+
+    const ok2 = window.confirm("Megerősítés: tényleg lezárod a ciklust? (Nem visszavonható)");
+    if (!ok2) return;
+
+    setShowForm(true);
+  }
+
+  async function confirmStopAndGenerate() {
+    if (!activeCycle) return;
+
+    setBusy(true);
+    setErr("");
+
+    try {
+      const endedAtIso = new Date().toISOString();
+
+      // 1) ciklus lezárás
+      const { error: updErr } = await supabase
+        .from("cycles")
+        .update({ ended_at: endedAtIso })
+        .eq("id", activeCycle.id)
+        .is("ended_at", null);
+
+      if (updErr) throw new Error(updErr.message);
+
+      // 2) devices.current_cycle_id nullázása
+      const { error: devErr } = await supabase
+        .from("devices")
+        .update({ current_cycle_id: null })
+        .eq("device_id", deviceId);
+
+      if (devErr) throw new Error(devErr.message);
+
+      // opcionális: esemény napló
+      const { error: insErr } = await supabase.from("alerts").insert({
+        device_id: deviceId,
+        ts: endedAtIso,
+        level: "info",
+        code: "CYCLE_FINISHED",
+        message: "Ciklus lezárva",
+        value: null,
+      });
+
+      if (insErr) console.warn("[alerts insert]", insErr.message);
+
+      // input parsing
+      const eggsCount = eggs.trim() === "" ? null : Number(eggs.replace(",", "."));
+      const hatchedCount = hatched.trim() === "" ? null : Number(hatched.replace(",", "."));
+
+      await generatePdfAndDownload({
+        cycle: activeCycle,
+        endedAtIso,
+        eggsCount: Number.isFinite(eggsCount as any) ? (eggsCount as number) : null,
+        hatchedCount: Number.isFinite(hatchedCount as any) ? (hatchedCount as number) : null,
+        notesText: notes,
+      });
+
+      // UI reset
+      setShowForm(false);
+      setEggs("");
+      setHatched("");
+      setNotes("");
+      setActiveCycle(null);
+
+      onAfterStop?.();
+      await loadActiveCycle();
+    } catch (e: any) {
+      setErr(e?.message ?? "Ismeretlen hiba");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loading) return null;
 
   return (
     <>
-      {activeCycle && (
+      {err && (
+        <div style={{ marginTop: 10, background: "#7f1d1d", padding: 12, borderRadius: 12 }}>
+          <b>Hiba:</b> {err}
+        </div>
+      )}
+
+      {canShow && (
         <button
           onClick={stopCycleWithReport}
           style={{
             padding: "8px 14px",
             borderRadius: 10,
+            border: "1px solid rgba(255,255,255,.15)",
             background: "#7f1d1d",
             color: "white",
             cursor: "pointer",
+            whiteSpace: "nowrap",
           }}
+          title="Ciklus leállítása és PDF riport készítése"
         >
           Ciklus stop + PDF
         </button>
       )}
 
-      {showForm && (
-        <div>
-          <input value={eggs} onChange={(e) => setEggs(e.target.value)} placeholder="Tojások száma" />
-          <input value={hatched} onChange={(e) => setHatched(e.target.value)} placeholder="Kikelt" />
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
-          <button onClick={confirmStopAndGenerate} disabled={busy}>
-            {busy ? "Készül..." : "Lezárás + PDF"}
-          </button>
+      {showForm && activeCycle && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              width: "min(520px, 100%)",
+              background: "#0b1220",
+              border: "1px solid rgba(255,255,255,.12)",
+              borderRadius: 14,
+              padding: 14,
+              boxShadow: "0 20px 60px rgba(0,0,0,.45)",
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>Ciklus lezárása + riport</div>
+
+            <div style={{ opacity: 0.9, marginBottom: 10, fontSize: 13 }}>
+              Eszköz: <b>{deviceId}</b> • Állat: <b>{huAnimal(activeCycle.animal_type)}</b>
+              <br />
+              Kezdés: {fmtTs(activeCycle.started_at)}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Tojások száma</div>
+                <input
+                  value={eggs}
+                  onChange={(e) => setEggs(e.target.value)}
+                  placeholder="pl. 40"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,.15)",
+                    background: "#111827",
+                    color: "white",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Kikelt</div>
+                <input
+                  value={hatched}
+                  onChange={(e) => setHatched(e.target.value)}
+                  placeholder="pl. 33"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,.15)",
+                    background: "#111827",
+                    color: "white",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Megjegyzés</div>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Pl. keltetési tapasztalatok, problémák, megjegyzések…"
+                rows={4}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,.15)",
+                  background: "#111827",
+                  color: "white",
+                  outline: "none",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (busy) return;
+                  setShowForm(false);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,.15)",
+                  background: "#111827",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Mégse
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmStopAndGenerate}
+                disabled={busy}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,.15)",
+                  background: "#7f1d1d",
+                  color: "white",
+                  cursor: "pointer",
+                  opacity: busy ? 0.7 : 1,
+                }}
+              >
+                {busy ? "Készül a riport…" : "Lezárás + PDF letöltés"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
