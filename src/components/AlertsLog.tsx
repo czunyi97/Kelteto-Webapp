@@ -38,7 +38,7 @@ function levelBg(level?: string | null) {
     case "blue":
       return "#1e40af";
 
-    // visszafelé kompatibilitás, ha régi értékek vannak
+    // visszafelé kompatibilitás
     case "alert":
       return "#7f1d1d";
     case "warning":
@@ -49,30 +49,14 @@ function levelBg(level?: string | null) {
   }
 }
 
-function levelBadge(level?: string | null) {
-  switch ((level ?? "").toLowerCase()) {
-    case "red":
-      return "PIROS";
-    case "yellow":
-      return "SÁRGA";
-    case "purple":
-      return "LILA";
-    case "blue":
-      return "KÉK";
-    case "alert":
-      return "RIASZTÁS";
-    case "warning":
-      return "FIGY.";
-    default:
-      return "";
-  }
-}
-
 function fmtValue(code?: string | null, value?: number | null) {
   if (value == null) return "";
   const c = (code ?? "").toUpperCase();
   const isHum = c.startsWith("HUM_");
-  return isHum ? `${value} %` : `${value} °C`;
+  // ha szeretnéd 1 tizedesre:
+  // const v = Math.round(value * 10) / 10;
+  const v = value;
+  return isHum ? `${v} %` : `${v} °C`;
 }
 
 export default function AlertsLog({ deviceId }: { deviceId: string }) {
@@ -107,7 +91,6 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
   }
 
   async function clearAlerts() {
-    // Dupla biztosítás: UI + backend (itt legalább UI-s)
     if (confirmText.trim().toUpperCase() !== "TÖRLÉS") {
       setErr('Megerősítés kell: írd be pontosan, hogy "TÖRLÉS".');
       return;
@@ -184,7 +167,6 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
         </div>
       </div>
 
-      {/* ✅ Törlés megerősítő doboz */}
       {showClear && (
         <div
           style={{
@@ -273,41 +255,37 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
       {!loading && !err && rows.length > 0 && (
         <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
           {rows.map((r) => {
-            const badge = levelBadge(r.level);
             const title = huLabel(r.code ?? "", r.message ?? "");
-            const valueStr = fmtValue(r.code, r.value as any);
+            const valueStr = fmtValue(r.code, (r.value as unknown as number) ?? null);
 
             return (
               <div
-                  key={r.id}
-                    style={{
-                    padding: 14,
-                    borderRadius: 12,
-                    border: "1px solid rgba(255,255,255,.10)",
-                    background: levelBg(r.level),
-                  }}
-                >
+                key={r.id}
+                style={{
+                  padding: 14,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,.10)",
+                  background: levelBg(r.level),
+                }}
+              >
                 <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      fontSize: 20,        // ← egységes nagy méret
-                      fontWeight: 700,
-                      color: "white",
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontSize: 20,
+                    fontWeight: 700,
+                    color: "white",
+                    gap: 14,
                   }}
                 >
-                  <span>
-                    {huLabel(r.code ?? "", r.message ?? "")}
+                  <span style={{ whiteSpace: "nowrap" }}>{title}</span>
+
+                  <span style={{ whiteSpace: "nowrap" }}>
+                    {r.value != null ? valueStr : ""}
                   </span>
 
-                  {r.value != null && (
-                    <span>
-                      {fmtValue(r.code, r.value as any)}
-                    </span>
-                  )}
-
-                  <span style={{ fontWeight: 500 }}>
+                  <span style={{ whiteSpace: "nowrap" }}>
                     {new Date(r.ts).toLocaleString()}
                   </span>
                 </div>
