@@ -2,6 +2,79 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { AlertRow } from "../lib/alerts";
 
+function huLabel(code: string, fallback: string) {
+  switch (code) {
+    case "TEMP_HIGH_WARN":
+      return "Hő magas";
+    case "TEMP_HIGH_CRIT":
+      return "Hő nagyon magas";
+    case "TEMP_LOW_WARN":
+      return "Hő alacsony";
+    case "TEMP_LOW_CRIT":
+      return "Hő nagyon alacsony";
+
+    case "HUM_HIGH_WARN":
+      return "Pára magas";
+    case "HUM_HIGH_CRIT":
+      return "Pára nagyon magas";
+    case "HUM_LOW_WARN":
+      return "Pára alacsony";
+    case "HUM_LOW_CRIT":
+      return "Pára nagyon alacsony";
+
+    default:
+      return fallback || "Riasztás";
+  }
+}
+
+function levelBg(level?: string | null) {
+  switch ((level ?? "").toLowerCase()) {
+    case "red":
+      return "#7f1d1d";
+    case "yellow":
+      return "#854d0e";
+    case "purple":
+      return "#6b21a8";
+    case "blue":
+      return "#1e40af";
+
+    // visszafelé kompatibilitás, ha régi értékek vannak
+    case "alert":
+      return "#7f1d1d";
+    case "warning":
+      return "#854d0e";
+
+    default:
+      return "#334155";
+  }
+}
+
+function levelBadge(level?: string | null) {
+  switch ((level ?? "").toLowerCase()) {
+    case "red":
+      return "PIROS";
+    case "yellow":
+      return "SÁRGA";
+    case "purple":
+      return "LILA";
+    case "blue":
+      return "KÉK";
+    case "alert":
+      return "RIASZTÁS";
+    case "warning":
+      return "FIGY.";
+    default:
+      return "";
+  }
+}
+
+function fmtValue(code?: string | null, value?: number | null) {
+  if (value == null) return "";
+  const c = (code ?? "").toUpperCase();
+  const isHum = c.startsWith("HUM_");
+  return isHum ? `${value} %` : `${value} °C`;
+}
+
 export default function AlertsLog({ deviceId }: { deviceId: string }) {
   const [rows, setRows] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,25 +272,50 @@ export default function AlertsLog({ deviceId }: { deviceId: string }) {
 
       {!loading && !err && rows.length > 0 && (
         <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-          {rows.map((r) => (
-            <div
-              key={r.id}
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,.08)",
-                background: r.level === "alert" ? "#7f1d1d" : "#854d0e",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <b>{r.message}</b>
-                <span style={{ opacity: 0.85, fontSize: 12 }}>{new Date(r.ts).toLocaleString()}</span>
+          {rows.map((r) => {
+            const badge = levelBadge(r.level);
+            const title = huLabel(r.code ?? "", r.message ?? "");
+            const valueStr = fmtValue(r.code, r.value as any);
+
+            return (
+              <div
+                key={r.id}
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,.10)",
+                  background: levelBg(r.level),
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <b>{title}</b>
+                    {badge && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(255,255,255,.22)",
+                          background: "rgba(0,0,0,.18)",
+                          opacity: 0.95,
+                        }}
+                      >
+                        {badge}
+                      </span>
+                    )}
+                  </div>
+
+                  <span style={{ opacity: 0.85, fontSize: 12 }}>{new Date(r.ts).toLocaleString()}</span>
+                </div>
+
+                <div style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
+                  Kód: {r.code}
+                  {r.value != null ? ` • Érték: ${valueStr}` : ""}
+                </div>
               </div>
-              <div style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
-                Kód: {r.code} {r.value != null ? ` • Érték: ${r.value}` : ""}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
