@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import jsPDF from "jspdf";
 // @ts-ignore
@@ -30,8 +30,20 @@ type AlertRowLite = {
   value: number | null;
 };
 
+// ✅ timestamptz → Europe/Budapest (stabil, nincs -1 óra)
 function fmtTs(ts: string) {
-  return new Date(ts).toLocaleString();
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+
+  return new Intl.DateTimeFormat("hu-HU", {
+    timeZone: "Europe/Budapest",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(d);
 }
 
 function avg(nums: number[]) {
@@ -243,9 +255,10 @@ export default function CycleStopReportButton({
 
     const labels = sampled.map((m) => {
       const d = new Date(m.ts);
-      return `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")} ${String(
-        d.getHours()
-      ).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      return `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(
+        2,
+        "0"
+      )}:${String(d.getMinutes()).padStart(2, "0")}`;
     });
 
     const tempSeries = sampled.map((m) => m.temp).filter((v): v is number => v != null);
@@ -350,7 +363,6 @@ export default function CycleStopReportButton({
 
     pdf.setFont("DejaVuSans", "normal");
 
-    // 1) Összesítő (counts)
     const counts = new Map<string, number>();
     for (const a of alerts) {
       const key = alertBucket(a.code);
@@ -392,13 +404,7 @@ export default function CycleStopReportButton({
 
     const alertBody = alerts.map((a) => {
       const title = huAlertTitle(a.code, a.message);
-      return [
-        fmtTs(a.ts),
-        shorten(title, 44), // ✅ rövidített esemény
-        a.code ?? "—",
-        a.value == null ? "—" : String(a.value),
-        a.level ?? "—",
-      ];
+      return [fmtTs(a.ts), shorten(title, 44), a.code ?? "—", a.value == null ? "—" : String(a.value), a.level ?? "—"];
     });
 
     if (alertBody.length === 0) {
@@ -412,16 +418,12 @@ export default function CycleStopReportButton({
         headStyles: { font: "DejaVuSans", fontStyle: "bold" },
         margin: { left: margin, right: margin },
       });
-
       // @ts-ignore
       y = (pdf as any).lastAutoTable.finalY + 18;
     } else {
-      // 2 oszlopos logika: ha sok sor, inkább 2 oszlop egy oldalon
-      // Ha túl sok (160+), marad 1 oszlop több oldalon (stabil).
       const pageW = pdf.internal.pageSize.getWidth();
       const colGap = 12;
       const colW = (pageW - 2 * margin - colGap) / 2;
-
       const useTwoCols = alertBody.length >= 18 && alertBody.length <= 160;
 
       if (!useTwoCols) {
@@ -435,7 +437,6 @@ export default function CycleStopReportButton({
           headStyles: { font: "DejaVuSans", fontStyle: "bold" },
           margin: { left: margin, right: margin },
         });
-
         // @ts-ignore
         y = (pdf as any).lastAutoTable.finalY + 18;
       } else {
@@ -482,7 +483,6 @@ export default function CycleStopReportButton({
       }
     }
 
-    // Megjegyzés blokk
     if (y > 720) {
       pdf.addPage();
       y = margin;
@@ -516,7 +516,6 @@ export default function CycleStopReportButton({
     try {
       const endedAtIso = new Date().toISOString();
 
-      // 1) ciklus lezárás
       const { error: updErr } = await supabase
         .from("cycles")
         .update({ ended_at: endedAtIso })
@@ -525,7 +524,6 @@ export default function CycleStopReportButton({
 
       if (updErr) throw new Error(updErr.message);
 
-      // ✅ 2) devices.current_cycle_id nullázása
       const { error: devErr } = await supabase
         .from("devices")
         .update({ current_cycle_id: null })
@@ -533,7 +531,6 @@ export default function CycleStopReportButton({
 
       if (devErr) throw new Error(devErr.message);
 
-      // opcionális: esemény napló
       const { error: insErr } = await supabase.from("alerts").insert({
         device_id: deviceId,
         ts: endedAtIso,
@@ -545,11 +542,9 @@ export default function CycleStopReportButton({
 
       if (insErr) console.warn("[alerts insert]", insErr.message);
 
-      // input parsing
       const eggsCount = eggs.trim() === "" ? null : Number(eggs.replace(",", "."));
       const hatchedCount = hatched.trim() === "" ? null : Number(hatched.replace(",", "."));
 
-      // PDF
       await generatePdfAndDownload({
         cycle: activeCycle,
         endedAtIso,
@@ -558,7 +553,6 @@ export default function CycleStopReportButton({
         notesText: notes,
       });
 
-      // UI reset
       setShowForm(false);
       setEggs("");
       setHatched("");
@@ -625,7 +619,9 @@ export default function CycleStopReportButton({
               boxShadow: "0 20px 60px rgba(0,0,0,.45)",
             }}
           >
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>Ciklus lezárása + riport</div>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>
+              Ciklus lezárása + riport
+            </div>
 
             <div style={{ opacity: 0.9, marginBottom: 10, fontSize: 13 }}>
               Eszköz: <b>{deviceId}</b> • Állat: <b>{huAnimal(activeCycle.animal_type)}</b>
