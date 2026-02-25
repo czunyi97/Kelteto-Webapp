@@ -50,6 +50,9 @@ type AlertMiniRow = {
   message: string | null;
 };
 
+// ✅ Napi feladatok típus
+type TaskRow = { day: number; message: string };
+
 function fmt(n: number | null, digits = 1) {
   if (n == null || Number.isNaN(n)) return "-";
   return n.toFixed(digits);
@@ -102,7 +105,13 @@ export default function Device() {
     return () => clearInterval(t);
   }, []);
 
-  // animals tábla betöltése egyszer
+  // ✅ Feladatok state
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksErr, setTasksErr] = useState<string>("");
+  const [todayTask, setTodayTask] = useState<TaskRow | null>(null);
+  const [nextTask, setNextTask] = useState<TaskRow | null>(null);
+
+  // animals tábla betöltése egyszer (név mapping)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -331,6 +340,67 @@ export default function Device() {
     };
   }, [deviceId]);
 
+  // ✅ 1/c) profil feladatok betöltése (animals.profile_json -> tasks)
+  useEffect(() => {
+    const animalType = state?.animal_type ?? null;
+    const day = state?.day ?? null;
+
+    // reset
+    setTasksErr("");
+    setTodayTask(null);
+    setNextTask(null);
+
+    if (!animalType || day == null) return;
+
+    let cancelled = false;
+
+    (async () => {
+      setTasksLoading(true);
+      try {
+        const q = await supabase
+          .from("animals")
+          .select("profile_json, profile_version")
+          .eq("id", animalType)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (q.error) {
+          setTasksErr(q.error.message);
+          return;
+        }
+
+        const pj: any = q.data?.profile_json ?? null;
+        const tasksRaw: any = pj?.tasks ?? null;
+
+        const tasks: TaskRow[] = Array.isArray(tasksRaw)
+          ? tasksRaw
+              .map((t: any) => ({
+                day: Number(t?.day),
+                message: String(t?.message ?? ""),
+              }))
+              .filter((t: TaskRow) => Number.isFinite(t.day) && t.day > 0 && t.message.trim() !== "")
+          : [];
+
+        tasks.sort((a, b) => a.day - b.day);
+
+        const today = tasks.find((t) => t.day === day) ?? null;
+        const next = tasks.find((t) => t.day > day) ?? null;
+
+        setTodayTask(today);
+        setNextTask(next);
+      } catch (e: any) {
+        if (!cancelled) setTasksErr(e?.message ?? "Feladatok betöltése sikertelen.");
+      } finally {
+        if (!cancelled) setTasksLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state?.animal_type, state?.day]);
+
   // 2) NAPI ÁTLAG (csak daily módban) — ciklus start/end alapján
   useEffect(() => {
     if (!deviceId) return;
@@ -520,6 +590,44 @@ export default function Device() {
                       {hMin.toFixed(0)} – {hMax.toFixed(0)} %
                     </b>
                   </div>
+                </div>
+              </div>
+
+              {/* ✅ NAPI FELADAT BLOKK – a két csempe alá */}
+              <div className="mini" style={{ marginTop: 12 }}>
+                <b>Napi feladat</b>
+                <div style={{ marginTop: 6 }}>
+                  {tasksLoading ? (
+                    <>Betöltés…</>
+                  ) : tasksErr ? (
+                    <>
+                      <span style={{ opacity: 0.85 }}>Nem elérhető:</span> {tasksErr}
+                    </>
+                  ) : todayTask ? (
+                    <>
+                      <span style={{ opacity: 0.85 }}>Ma van feladat:</span>{" "}
+                      <b>{todayTask.message}</b>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ opacity: 0.85 }}>Ma:</span> nincs feladat
+                    </>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 6 }}>
+                  {tasksLoading ? null : nextTask ? (
+                    <>
+                      <span style={{ opacity: 0.85 }}>Következő:</span>{" "}
+                      nap <b>{nextTask.day}</b> — <b>{nextTask.message}</b>
+                    </>
+                  ) : (
+                    !tasksErr && (
+                      <>
+                        <span style={{ opacity: 0.85 }}>Következő:</span> nincs (a profilban)
+                      </>
+                    )
+                  )}
                 </div>
               </div>
             </div>
