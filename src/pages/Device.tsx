@@ -44,19 +44,45 @@ type CycleRow = {
   ended_at: string | null;
 };
 
-// ✅ 24h riasztások a piros pontokhoz
 type AlertMiniRow = {
   ts: string;
   code: string | null;
   message: string | null;
 };
 
-// ✅ Napi feladatok típus
 type TaskRow = { day: number; message: string };
 
 function fmt(n: number | null, digits = 1) {
   if (n == null || Number.isNaN(n)) return "-";
   return n.toFixed(digits);
+}
+
+// ===== DÁTUM HELYI NAPHOZ =====
+function startOfLocalDay(input: Date | string) {
+  const d = new Date(input);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function addLocalDays(input: Date | string, days: number) {
+  const d = startOfLocalDay(input);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function localDayKey(input: Date | string) {
+  const d = new Date(input);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function minDate(a: Date, b: Date) {
+  return a.getTime() <= b.getTime() ? a : b;
+}
+
+function maxDate(a: Date, b: Date) {
+  return a.getTime() >= b.getTime() ? a : b;
 }
 
 export default function Device() {
@@ -71,7 +97,6 @@ export default function Device() {
   const [rows24h, setRows24h] = useState<MeasurementRow[]>([]);
   const [dailyAvg, setDailyAvg] = useState<DailyAvgRow[]>([]);
 
-  // ✅ 24h riasztások state
   const [alerts24h, setAlerts24h] = useState<AlertMiniRow[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -82,37 +107,39 @@ export default function Device() {
   const [cycles, setCycles] = useState<CycleRow[]>([]);
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
 
-  // Új ciklus UI
   const [showNewCycle, setShowNewCycle] = useState(false);
   const [newAnimalType, setNewAnimalType] = useState<string>("");
   const [newStartDate, setNewStartDate] = useState<string>(() =>
-    new Date().toISOString().slice(0, 10)
+    localDayKey(new Date())
   );
   const [busyCycle, setBusyCycle] = useState(false);
 
-  // Teljes törlés (csúszkás megerősítés)
   const [showWipe, setShowWipe] = useState(false);
   const [wipeSlide, setWipeSlide] = useState(0);
   const [busyWipe, setBusyWipe] = useState(false);
 
-  // Recharts újramount (finom anim reset)
   const [chartKey24, setChartKey24] = useState(0);
   const [chartKeyDaily, setChartKeyDaily] = useState(0);
 
-  // Online/offline pill frissítéshez
   const [nowTick, setNowTick] = useState(Date.now());
+  const [refreshTick, setRefreshTick] = useState(0);
+
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
 
-  // ✅ Feladatok state
+  // percenként újratöltéshez
+  useEffect(() => {
+    const t = setInterval(() => setRefreshTick((v) => v + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksErr, setTasksErr] = useState<string>("");
   const [todayTask, setTodayTask] = useState<TaskRow | null>(null);
   const [nextTask, setNextTask] = useState<TaskRow | null>(null);
 
-  // animals tábla betöltése egyszer (név mapping)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -132,18 +159,12 @@ export default function Device() {
     };
   }, []);
 
-  const since24hIso = useMemo(
-    () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    []
-  );
-
   const animalLabel =
     state?.animals?.name_hu ??
     (state?.animal_type ? animalMap[state.animal_type] : undefined) ??
     state?.animal_type ??
     "-";
 
-  // ====== CYCLE HELPERS ======
   async function loadCycles(device_id: string) {
     const { data, error } = await supabase
       .from("cycles")
@@ -166,7 +187,6 @@ export default function Device() {
     return (data?.current_cycle_id as string | null) ?? null;
   }
 
-  // Új ciklus indítás
   async function startNewCycle(device_id: string, animal_type: string, startedAtISO: string) {
     const { data: cycle, error: e1 } = await supabase
       .from("cycles")
@@ -190,7 +210,6 @@ export default function Device() {
     return cycle as CycleRow;
   }
 
-  // 24h adatok törlése (eldobható)
   async function clear24h(device_id: string) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { error } = await supabase
@@ -202,7 +221,6 @@ export default function Device() {
     if (error) throw error;
   }
 
-  // Teljes törlés
   async function fullWipeDevice(device_id: string) {
     const m = await supabase.from("measurements").delete().eq("device_id", device_id);
     if (m.error) throw m.error;
@@ -220,7 +238,7 @@ export default function Device() {
     if (d.error) throw d.error;
   }
 
-  // 1) állapot + 24h mérések + 24h riasztások + ciklusok (page load / device váltás)
+  // ===== 1) ÁLLAPOT + 24H + ALERT + CIKLUSOK =====
   useEffect(() => {
     if (!deviceId) return;
 
@@ -229,6 +247,8 @@ export default function Device() {
     (async () => {
       setLoading(true);
       setErr("");
+
+      const since24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
       const s = await supabase
         .from("device_state")
@@ -257,7 +277,6 @@ export default function Device() {
       }
       setState((s.data ?? null) as StateRow | null);
 
-      // ✅ 24h measurements
       const m = await supabase
         .from("measurements")
         .select("ts, temp, hum")
@@ -275,7 +294,6 @@ export default function Device() {
 
       setRows24h((m.data ?? []) as MeasurementRow[]);
 
-      // ✅ 24h alerts (piros pontok)
       const a = await supabase
         .from("alerts")
         .select("ts, code, message")
@@ -292,11 +310,16 @@ export default function Device() {
         setAlerts24h((a.data ?? []) as AlertMiniRow[]);
       }
 
-      // ciklus lista + aktuális ciklus
       try {
-        const [cList, curId] = await Promise.all([loadCycles(deviceId), loadCurrentCycleId(deviceId)]);
+        const [cList, curId] = await Promise.all([
+          loadCycles(deviceId),
+          loadCurrentCycleId(deviceId),
+        ]);
         setCycles(cList);
-        setSelectedCycleId(curId ?? (cList[0]?.id ?? null));
+        setSelectedCycleId((prev) => {
+          if (prev && cList.some((c) => c.id === prev)) return prev;
+          return curId ?? (cList[0]?.id ?? null);
+        });
       } catch (e: any) {
         console.warn("[cycles load]", e?.message ?? e);
       }
@@ -307,9 +330,9 @@ export default function Device() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, since24hIso]);
+  }, [deviceId, refreshTick]);
 
-  // 1/b) realtime: device_state élő frissítés
+  // ===== 1/b) REALTIME DEVICE_STATE =====
   useEffect(() => {
     if (!deviceId) return;
 
@@ -338,12 +361,11 @@ export default function Device() {
     };
   }, [deviceId]);
 
-  // ✅ 1/c) profil feladatok betöltése (animals.profile_json -> tasks)
+  // ===== 1/c) PROFIL FELADATOK =====
   useEffect(() => {
     const animalType = state?.animal_type ?? null;
     const day = state?.day ?? null;
 
-    // reset
     setTasksErr("");
     setTodayTask(null);
     setNextTask(null);
@@ -401,7 +423,9 @@ export default function Device() {
     };
   }, [state?.animal_type, state?.day]);
 
-  // 2) NAPI ÁTLAG (csak daily módban) — ciklus start/end alapján
+  // ===== 2) NAPI ÁTLAG =====
+  // 7 nap: a kiválasztott ciklus UTOLSÓ 7 naptári napja
+  // 21 / 28 nap: a ciklus INDULÁSÁTÓL számolt első 21 / 28 nap
   useEffect(() => {
     if (!deviceId) return;
     if (!selectedCycleId) return;
@@ -411,11 +435,30 @@ export default function Device() {
     const selectedCycle = cycles.find((c) => c.id === selectedCycleId);
     if (!selectedCycle) return;
 
-    const startISO = selectedCycle.started_at;
-    const endISO = selectedCycle.ended_at ?? new Date().toISOString();
+    const cycleStart = startOfLocalDay(selectedCycle.started_at);
+    const cycleEndBase = selectedCycle.ended_at ? new Date(selectedCycle.ended_at) : new Date();
+    const cycleEndDay = startOfLocalDay(cycleEndBase);
 
-    const rangeStartISO = new Date(Date.now() - dailyRange * 24 * 60 * 60 * 1000).toISOString();
-    const effectiveStartISO = rangeStartISO > startISO ? rangeStartISO : startISO;
+    let windowStart = cycleStart;
+    let windowEnd = cycleEndDay;
+
+    if (dailyRange === 7) {
+      const last7Start = addLocalDays(cycleEndDay, -6);
+      windowStart = maxDate(cycleStart, last7Start);
+      windowEnd = cycleEndDay;
+    } else {
+      const plannedEnd = addLocalDays(cycleStart, dailyRange - 1);
+      windowStart = cycleStart;
+      windowEnd = minDate(plannedEnd, cycleEndDay);
+    }
+
+    if (windowEnd.getTime() < windowStart.getTime()) {
+      setDailyAvg([]);
+      return;
+    }
+
+    const queryStartIso = windowStart.toISOString();
+    const queryEndExclusiveIso = addLocalDays(windowEnd, 1).toISOString();
 
     let cancelled = false;
 
@@ -426,8 +469,8 @@ export default function Device() {
         .from("measurements")
         .select("ts, temp, hum")
         .eq("device_id", deviceId)
-        .gte("ts", effectiveStartISO)
-        .lt("ts", endISO)
+        .gte("ts", queryStartIso)
+        .lt("ts", queryEndExclusiveIso)
         .order("ts", { ascending: true });
 
       if (cancelled) return;
@@ -439,29 +482,46 @@ export default function Device() {
 
       const data = (m.data ?? []) as MeasurementRow[];
 
-      const byDay = new Map<string, { tSum: number; tN: number; hSum: number; hN: number }>();
+      const byDay = new Map<
+        string,
+        { tSum: number; tN: number; hSum: number; hN: number }
+      >();
+
       for (const r of data) {
-        const day = new Date(r.ts).toISOString().slice(0, 10); // UTC nap
-        if (!byDay.has(day)) byDay.set(day, { tSum: 0, tN: 0, hSum: 0, hN: 0 });
-        const agg = byDay.get(day)!;
+        const dayKey = localDayKey(r.ts);
+
+        if (!byDay.has(dayKey)) {
+          byDay.set(dayKey, { tSum: 0, tN: 0, hSum: 0, hN: 0 });
+        }
+
+        const agg = byDay.get(dayKey)!;
 
         if (r.temp != null && !Number.isNaN(r.temp)) {
           agg.tSum += r.temp;
           agg.tN += 1;
         }
+
         if (r.hum != null && !Number.isNaN(r.hum)) {
           agg.hSum += r.hum;
           agg.hN += 1;
         }
       }
 
-      const out: DailyAvgRow[] = Array.from(byDay.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([day, a]) => ({
-          day,
-          temp_avg: a.tN ? Math.round((a.tSum / a.tN) * 10) / 10 : null,
-          hum_avg: a.hN ? Math.round((a.hSum / a.hN) * 10) / 10 : null,
-        }));
+      const out: DailyAvgRow[] = [];
+      for (
+        let d = startOfLocalDay(windowStart);
+        d.getTime() <= windowEnd.getTime();
+        d = addLocalDays(d, 1)
+      ) {
+        const key = localDayKey(d);
+        const a = byDay.get(key);
+
+        out.push({
+          day: key,
+          temp_avg: a?.tN ? Math.round((a.tSum / a.tN) * 10) / 10 : null,
+          hum_avg: a?.hN ? Math.round((a.hSum / a.hN) * 10) / 10 : null,
+        });
+      }
 
       setDailyAvg(out);
     })();
@@ -469,9 +529,8 @@ export default function Device() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, tab, chartMode, dailyRange, selectedCycleId, cycles]);
+  }, [deviceId, tab, chartMode, dailyRange, selectedCycleId, cycles, refreshTick]);
 
-  // --- Online / Offline + állapot szöveg ---
   const updatedMs = state?.updated_at ? new Date(state.updated_at).getTime() : 0;
   const online = !!updatedMs && nowTick - updatedMs < 3 * 60 * 1000;
 
@@ -593,7 +652,6 @@ export default function Device() {
                 </div>
               </div>
 
-              {/* ✅ NAPI FELADAT BLOKK – a két csempe alá */}
               <div className="mini" style={{ marginTop: 12 }}>
                 <b>Napi feladat</b>
                 <div style={{ marginTop: 6 }}>
@@ -651,7 +709,7 @@ export default function Device() {
                 </button>
               </div>
               <div className="mini" style={{ marginTop: 10 }}>
-                Grafikon: 24 órás idősor vagy napi átlag (7/21/28 nap).
+                Grafikon: 24 órás idősor vagy napi átlag. A 7 nap az utolsó 7 napot mutatja, a 21/28 nap pedig a ciklus kezdetétől számol.
               </div>
             </div>
           </div>
@@ -676,7 +734,6 @@ export default function Device() {
                   </button>
                 </div>
 
-                {/* Teljes törlés */}
                 <div className="row" style={{ marginBottom: 12, justifyContent: "flex-end" }}>
                   <button
                     type="button"
@@ -697,7 +754,6 @@ export default function Device() {
                   </button>
                 </div>
 
-                {/* Daily: ciklus választó + új ciklus + stop+pdf */}
                 {chartMode === "daily" && (
                   <div className="card" style={{ marginBottom: 12 }}>
                     <div className="row" style={{ alignItems: "center", gap: 10 }}>
@@ -721,7 +777,7 @@ export default function Device() {
                         </select>
 
                         <div className="mini" style={{ marginTop: 8 }}>
-                          A napi grafikon a kiválasztott ciklus (kezdés/vége) alapján számol.
+                          7 nap = a ciklus utolsó 7 napja. 21/28 nap = a ciklus indulásától számolt napok.
                         </div>
                       </div>
 
@@ -788,7 +844,7 @@ export default function Device() {
                             try {
                               await clear24h(deviceId);
                               setRows24h([]);
-                              setAlerts24h([]); // ✅
+                              setAlerts24h([]);
                               setChartKey24((k) => k + 1);
                             } catch (e: any) {
                               setErr(e?.message ?? "Nem sikerült törölni.");
@@ -799,7 +855,6 @@ export default function Device() {
                         </button>
                       </div>
 
-                      {/* ✅ átadjuk a sávot + riasztásokat a Chartnak */}
                       <Chart24h
                         key={chartKey24}
                         data={rows24h}
@@ -822,7 +877,6 @@ export default function Device() {
                   <ChartDailyAvg key={chartKeyDaily} data={dailyAvg} />
                 )}
 
-                {/* Új ciklus */}
                 {showNewCycle && (
                   <div className="card" style={{ marginTop: 12 }}>
                     <div className="sectionTitle">Új ciklus indítása</div>
@@ -866,7 +920,7 @@ export default function Device() {
                               setBusyCycle(true);
                               setErr("");
 
-                              const startedAtISO = new Date(`${newStartDate}T00:00:00Z`).toISOString();
+                              const startedAtISO = new Date(`${newStartDate}T00:00:00`).toISOString();
                               const cycle = await startNewCycle(deviceId, newAnimalType, startedAtISO);
 
                               const cList = await loadCycles(deviceId);
@@ -891,7 +945,6 @@ export default function Device() {
                   </div>
                 )}
 
-                {/* Teljes törlés modal */}
                 {showWipe && (
                   <div className="card" style={{ marginTop: 12, border: "1px solid rgba(255,255,255,.12)" }}>
                     <div className="sectionTitle" style={{ color: "#fecaca" }}>
@@ -952,7 +1005,7 @@ export default function Device() {
                             await fullWipeDevice(deviceId);
 
                             setRows24h([]);
-                            setAlerts24h([]); // ✅
+                            setAlerts24h([]);
                             setDailyAvg([]);
                             setCycles([]);
                             setSelectedCycleId(null);
